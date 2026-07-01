@@ -22,6 +22,7 @@ import { partitionLinkedStylesheets } from './stylesheetPlan'
 import { detectCrossSheetClassConflicts, isSharedUtilityClassName } from './classCascades'
 import { detectConflicts } from './conflicts'
 import { createCssPlanState, parseCssSourceIntoPlan } from './planCss'
+import { rewriteNpmCdnModuleImports } from './scriptDependencies'
 import type {
   ClassifiedFile,
   FileMap,
@@ -210,6 +211,7 @@ function collectHtmlPagePlans(classified: ClassifiedFile[], fileMap: FileMap): H
     path: string
     content: string
     format: ImportScript['format']
+    dependencies: ImportScript['dependencies']
     pageSources: Set<string>
     priority: number
   }>()
@@ -234,11 +236,13 @@ function collectHtmlPagePlans(classified: ClassifiedFile[], fileMap: FileMap): H
         ? pageScript.content
         : decodeExternalScript(fileMap, pageScript.path)
       if (content === null) continue
+      const script = normalizeImportedScriptContent(content, pageScript.format)
 
       scriptsByPath.set(scriptPath, {
         path: scriptPath,
-        content,
+        content: script.content,
         format: pageScript.format,
+        dependencies: script.dependencies,
         pageSources: new Set([pagePlan.source]),
         priority: nextScriptPriority,
       })
@@ -358,4 +362,15 @@ function decodeUtf8(bytes: Uint8Array): string {
 function decodeExternalScript(fileMap: FileMap, path: string): string | null {
   const file = fileMap.files[path]
   return file ? decodeUtf8(file.bytes) : null
+}
+
+function normalizeImportedScriptContent(
+  content: string,
+  format: ImportScript['format'],
+): Pick<ImportScript, 'content' | 'dependencies'> {
+  if (format !== 'module') return { content }
+  const rewritten = rewriteNpmCdnModuleImports(content)
+  return rewritten.dependencies.length > 0
+    ? { content: rewritten.content, dependencies: rewritten.dependencies }
+    : { content }
 }

@@ -34,6 +34,11 @@
   display: block;
 }
 
+:global(html[data-instatic-canvas-parent-space-pan='1']) .iframe:not(.iframeLive),
+:global(html[data-instatic-canvas-iframe-space-pan='1']) .iframe:not(.iframeLive) {
+  pointer-events: none;
+}
+
 /* Live frame: a single real-size viewport that scrolls internally instead of
  * growing to content. The live surface controls the wrapper's width; the
  * iframe fills it and owns its own scrollbar (published height behaviour).

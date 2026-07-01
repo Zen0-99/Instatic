@@ -81,7 +81,11 @@ export async function insertModuleViaPicker(
 export async function openLayersPanel(page: Page): Promise<void> {
   const tree = page.getByRole('tree', { name: 'Page element tree' })
   if (!(await tree.isVisible().catch(() => false))) {
-    await page.getByRole('button', { name: 'Open Layers panel' }).click()
+    const explorer = page.getByRole('complementary', { name: 'Explorer' })
+    if (!(await explorer.isVisible().catch(() => false))) {
+      await page.getByRole('button', { name: 'Open Explorer panel' }).click()
+    }
+    await explorer.getByRole('button', { name: 'Layers', exact: true }).click()
   }
   await expect(tree).toBeVisible()
 }
@@ -113,7 +117,11 @@ export async function setPropValue(
 export async function openSitePanel(page: Page): Promise<void> {
   const newPageButton = page.getByRole('button', { name: 'New page', exact: true })
   if (!(await newPageButton.isVisible().catch(() => false))) {
-    await page.getByRole('button', { name: 'Open Site panel' }).click()
+    const explorer = page.getByRole('complementary', { name: 'Explorer' })
+    if (!(await explorer.isVisible().catch(() => false))) {
+      await page.getByRole('button', { name: 'Open Explorer panel' }).click()
+    }
+    await explorer.getByRole('button', { name: 'Site', exact: true }).click()
   }
   await expect(newPageButton).toBeVisible()
 }

@@ -208,7 +208,7 @@ Generated files (e.g. `package.json`, `vite.config.ts`) are hidden in the Site E
 
 Site Explorer organization is split by whether a section owns URL/file paths.
 
-Pages, styles, and scripts are structural sections: folders are derived from page slugs or file paths, and changing a folder or item path rewrites those slugs/paths after a confirmation dialog lists the exact changes. Deleting a structural folder deletes every page or file under that path. Templates and Visual Components stay decorative: folders only organize rows in the editor and do not change template routing or component identity.
+Pages, styles, and scripts are structural sections: folders are derived from page slugs or file paths, and changing a folder or item path rewrites those slugs/paths. The confirmation dialog only appears when there is something to review — actual slug/path rewrites, or a blocker to explain. Renaming, moving, or deleting an *empty* folder rewrites no content paths, so it applies directly (its new/removed path is still persisted in the section's `emptyFolders`/`expandedFolders`/`rowOrder` bookkeeping via the plan commit). Deleting a non-empty structural folder deletes every page or file under that path. Templates and Visual Components stay decorative: folders only organize rows in the editor and do not change template routing or component identity.
 
 ```ts
 type SiteExplorerSectionId =
@@ -453,7 +453,7 @@ The panel rail's per-viewport canvas iframe shows up automatically when `preview
 
 ### Add a color token
 
-The Site → Colors panel calls `createFrameworkColorToken(input)` on the editor store's `siteSlice`. The action writes to `settings.framework.colors.tokens`, then calls `reconcileFrameworkClasses` to sync generated utility classes. Saving updates `framework.css` via `buildSiteFrameworkCss(site)` and republishes affected pages.
+The Framework panel's Colors tab calls `createFrameworkColorToken(input)` on the editor store's `siteSlice`. The action writes to `settings.framework.colors.tokens`, then calls `reconcileFrameworkClasses` to sync generated utility classes. Saving updates `framework.css` via `buildSiteFrameworkCss(site)` and republishes affected pages.
 
 ### Add a site file
 

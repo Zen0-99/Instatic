@@ -5,9 +5,8 @@
  *   • Site identity — done when `site.name` differs from the default
  *     ("Untitled Site") OR the favicon has been set.
  *   • Framework import — derived from `site.settings.framework` being
- *     populated. Defaults to `'choose'` (active) so the user is nudged
- *     to make a deliberate decision; once they pick a mode the step
- *     flips to done.
+ *     populated. Defaults to `'active'` so the user is nudged to make a
+ *     deliberate decision; once they pick a mode the step flips to done.
  *   • First page — done when ≥ 2 pages exist (the seed Home page
  *     doesn't count).
  *   • First plugin — done when any plugin is installed.
@@ -43,10 +42,16 @@ const INITIAL: OnboardingFacts = {
   team: 'todo',
 }
 
-export function useOnboardingState(): OnboardingFacts {
+export interface OnboardingStateResult {
+  facts: OnboardingFacts
+  /** Re-run the live CMS lookups (e.g. after importing the framework). */
+  refresh: () => void
+}
+
+export function useOnboardingState(): OnboardingStateResult {
   // `Promise.allSettled` never rejects — each individual failure soft-fails to
   // an empty/undefined value so a broken endpoint doesn't brick the dashboard.
-  const { data } = useAsyncResource<OnboardingFacts>(async () => {
+  const { data, refresh } = useAsyncResource<OnboardingFacts>(async () => {
     const [siteResult, pluginsResult, usersResult] = await Promise.allSettled([
       cmsAdapter.loadSite('default'),
       listCmsPlugins(),
@@ -72,5 +77,5 @@ export function useOnboardingState(): OnboardingFacts {
     }
   }, [])
 
-  return data ?? INITIAL
+  return { facts: data ?? INITIAL, refresh }
 }

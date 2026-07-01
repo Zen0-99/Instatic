@@ -40,6 +40,7 @@ interface CanvasKeyboardShortcutsDeps {
   cutNode: (nodeId: string) => void
   cutNodes: (nodeIds: string[]) => void
   pasteNode: (nodeId: string) => void
+  runShortcut?: (event: KeyboardEvent) => boolean
 }
 
 /** Inputs / textareas / contenteditable surfaces let the browser own the keystroke. */
@@ -140,6 +141,7 @@ export function useCanvasKeyboardShortcuts(
     cutNode,
     cutNodes,
     pasteNode,
+    runShortcut,
   } = deps
 
   return (event: CanvasKeyEvent) => {
@@ -153,6 +155,8 @@ export function useCanvasKeyboardShortcuts(
 
     // Zoom / pan keys always run, regardless of selection state.
     canvasKeyDown(event)
+
+    if (runShortcut?.(event.nativeEvent)) return
 
     // Escape exits VC mode regardless of selection (SF-1 / CR #666). This
     // must run before the selectedNodeId guard so pressing Escape while in

@@ -134,6 +134,26 @@ export async function processStreamEvent(
         console.error(`[AgentSlice] tool ${event.toolName} threw unexpectedly:`, err)
         result = aiToolError(`Browser exception: ${message}`)
       }
+      // A browser tool may return a preview image (the render_snapshot PNG).
+      // Stash it on the matching pending tool-call block so the panel can show
+      // what the agent looked at. The `toolCall` event for this call already
+      // created the block, and tool calls are sequential, so exactly one block
+      // for this tool is pending. Session-only — the image is never posted or
+      // persisted, so it rehydrates empty after a reload.
+      const previewImage = result.ok ? result.images?.[0] : undefined
+      if (previewImage) {
+        const dataUrl = `data:${previewImage.mimeType};base64,${previewImage.data}`
+        set((state) => {
+          const msg = state.agentMessages.find((m) => m.id === assistantId)
+          const block = msg?.blocks.find(
+            (b): b is { kind: 'toolCall'; toolCall: AgentToolCall } =>
+              b.kind === 'toolCall'
+              && b.toolCall.actionType === event.toolName
+              && b.toolCall.status === 'pending',
+          )
+          if (block) block.toolCall.screenshotDataUrl = dataUrl
+        })
+      }
       if (!bridge.bridgeId) {
         console.error('[AgentSlice] toolRequest received before bridgeReady')
         break

@@ -26,6 +26,7 @@
  * (the previous "Hide steps" toggle was removed — there's no in-between
  * collapsed state). Dismissal persists in localStorage per user.
  */
+import { useState } from 'react'
 import { CheckIcon } from 'pixel-art-icons/icons/check'
 import { ChevronRightIcon } from 'pixel-art-icons/icons/chevron-right'
 import { FileTextSolidIcon } from 'pixel-art-icons/icons/file-text-solid'
@@ -35,10 +36,18 @@ import { UsersSolidIcon } from 'pixel-art-icons/icons/users-solid'
 import { CodeIcon } from 'pixel-art-icons/icons/code'
 import { useAdminNavigate } from '@admin/lib/useAdminNavigate'
 import { useAdminUi } from '@admin/state/adminUi'
+import { requestCmsSiteReload } from '@admin/state/adminEvents'
 import { Button } from '@ui/components/Button'
 import type { PixelArtIconComponent } from '@core/dashboard'
 import type { OnboardingFacts, OnboardingStepState } from '../hooks/useOnboardingState'
 import { LiquidProgressRing } from './LiquidProgressRing'
+import {
+  FrameworkManagerDialog,
+  type FrameworkManagerApplier,
+} from '@admin/shared/dialogs/FrameworkManagerDialog'
+import { cmsAdapter } from '@core/persistence/cms'
+import { applyFrameworkPreset } from '@core/framework'
+import { reconcileFrameworkClasses } from '@site/store/slices/site/framework/reconcile'
 import styles from './OnboardingPanel.module.css'
 
 interface StepDef {
@@ -47,7 +56,10 @@ interface StepDef {
   desc: string
   cta: string
   icon: PixelArtIconComponent
-  action: { kind: 'navigate'; to: string } | { kind: 'settings-modal' }
+  action:
+    | { kind: 'navigate'; to: string }
+    | { kind: 'settings-modal' }
+    | { kind: 'framework-import' }
 }
 
 const STEPS: readonly StepDef[] = [
@@ -65,9 +77,9 @@ const STEPS: readonly StepDef[] = [
     title: 'Choose Core Framework import',
     desc:
       'Variables only, the full utility framework, or skip it and bring your own CSS.',
-    cta: 'Configure',
+    cta: 'Import',
     icon: CodeIcon,
-    action: { kind: 'settings-modal' },
+    action: { kind: 'framework-import' },
   },
   {
     id: 'firstPage',
@@ -101,6 +113,8 @@ const STEPS: readonly StepDef[] = [
 interface OnboardingPanelProps {
   facts: OnboardingFacts
   onDismiss: () => void
+  /** Called after the Core Framework import saved — refresh the onboarding facts. */
+  onFrameworkImported: () => void
 }
 
 function stateLabel(state: OnboardingStepState): string {
@@ -109,9 +123,42 @@ function stateLabel(state: OnboardingStepState): string {
   return 'Not started'
 }
 
-export function OnboardingPanel({ facts, onDismiss }: OnboardingPanelProps) {
+export function OnboardingPanel({ facts, onDismiss, onFrameworkImported }: OnboardingPanelProps) {
   const navigate = useAdminNavigate()
   const openSettings = useAdminUi((s) => s.openSettings)
+  const [frameworkImportOpen, setFrameworkImportOpen] = useState(false)
+
+  // Same dialog, same behaviour as the in-editor Manage Framework host: the
+  // full Full / Variables only / None state picker, reconciled the same way
+  // (merge add-missing + flip utilities). Onboarding just persists through the
+  // cmsAdapter instead of the live editor store.
+  const onboardingApplier: FrameworkManagerApplier = {
+    capabilities: { canRemove: true },
+    apply: async (target) => {
+      const site = await cmsAdapter.loadSite('default')
+      if (!site) throw new Error('Site is not ready yet — finish setup first.')
+      site.settings.framework = applyFrameworkPreset(site.settings.framework, target)
+      // Regenerate / prune the generated `framework:` utility classes (and strip
+      // stale classIds off nodes) to match the new settings — the same reconcile
+      // the in-editor store runs. Without it, removing the framework here would
+      // leave its `.text-primary` / `.bg-primary` classes lingering in the saved
+      // styleRules, so the Site editor keeps showing them until a hard refresh.
+      reconcileFrameworkClasses(site)
+      await cmsAdapter.saveSite(site, {
+        baselinePageIds: site.pages.map((page) => page.id),
+        dirty: { all: false, pageIds: new Set(), componentIds: new Set(), layoutIds: new Set() },
+      })
+      // The framework settings were written to storage outside the editor. If
+      // the Site editor's store was hydrated earlier this session, its in-memory
+      // `site` is now stale and `usePersistence`'s mount-load early-returns
+      // without refetching — so the editor would keep showing the pre-import
+      // framework ("stuck on variables only"). Signal a reload, matching every
+      // other out-of-editor site mutation (bundle import, plugin install, data
+      // edits). The in-editor applier doesn't need this — it mutates the store
+      // directly.
+      requestCmsSiteReload()
+    },
+  }
 
   const states = STEPS.map((step) => ({ step, state: facts[step.id] }))
   const done = states.filter((s) => s.state === 'done').length
@@ -120,6 +167,8 @@ export function OnboardingPanel({ facts, onDismiss }: OnboardingPanelProps) {
   function runStep(step: StepDef) {
     if (step.action.kind === 'navigate') {
       navigate(step.action.to)
+    } else if (step.action.kind === 'framework-import') {
+      setFrameworkImportOpen(true)
     } else {
       openSettings('general')
     }
@@ -183,6 +232,18 @@ export function OnboardingPanel({ facts, onDismiss }: OnboardingPanelProps) {
           )
         })}
       </ol>
+
+      <FrameworkManagerDialog
+        open={frameworkImportOpen}
+        onClose={() => setFrameworkImportOpen(false)}
+        applier={onboardingApplier}
+        currentState={facts.framework === 'done' ? 'full' : 'none'}
+        // The onboarding step's intent is "import the framework" — open with
+        // Full pre-selected so the primary button reads "Import framework" and
+        // one click imports, rather than landing on the no-op current state.
+        initialTarget="full"
+        onApplied={onFrameworkImported}
+      />
     </section>
   )
 }

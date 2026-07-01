@@ -267,6 +267,30 @@ describe('buildImportPlan — structure', () => {
     expect(plan.scripts.map((s) => s.path)).not.toContain('scripts/unused.js')
   })
 
+  it('converts npm CDN module imports into package dependencies', () => {
+    const encoder = new TextEncoder()
+    const p = buildImportPlan({
+      fileMap: {
+        files: {
+          'index.html': {
+            bytes: encoder.encode(`<!doctype html><html><body><script type="module" src="./motion.js"></script></body></html>`),
+            mimeType: 'text/html',
+          },
+          'motion.js': {
+            bytes: encoder.encode(`import { Motion } from 'https://esm.sh/@motion.page/sdk@1.2.4';\nwindow.Motion = Motion;`),
+            mimeType: 'application/javascript',
+          },
+        },
+      },
+      currentSite,
+    })
+
+    expect(p.scripts).toHaveLength(1)
+    expect(p.scripts[0]!.content).toContain(`from '@motion.page/sdk'`)
+    expect(p.scripts[0]!.content).not.toContain('https://esm.sh')
+    expect(p.scripts[0]!.dependencies).toEqual([{ name: '@motion.page/sdk', version: '1.2.4' }])
+  })
+
   it('imports executable inline scripts before the linked scripts that follow them', () => {
     const html = `<!doctype html><html><body>
       <script>var duration='500',easing='swing';</script>

@@ -39,6 +39,7 @@ import {
   TreeRow,
   treeDropStyles,
 } from '@site/ui/Tree'
+import { getKeybindingForCommand } from '@admin/spotlight/keybindings'
 import { useEditorPreference } from '@site/preferences/editorPreferences'
 import { useConfirmDelete } from '@admin/shared/dialogs/ConfirmDeleteDialog'
 import { LayerTreeNodeContent } from './LayerTreeNodeContent'
@@ -94,6 +95,7 @@ export const TreeNode = memo(function TreeNode({ nodeId, depth, editable = true 
   const selectNode = useEditorStore((s) => s.selectNode)
   const hoverNode = useEditorStore((s) => s.hoverNode)
   const deleteNode = useEditorStore((s) => s.deleteNode)
+  const deleteNodes = useEditorStore((s) => s.deleteNodes)
   const duplicateNode = useEditorStore((s) => s.duplicateNode)
   const renameNode = useEditorStore((s) => s.renameNode)
   const wrapNode = useEditorStore((s) => s.wrapNode)
@@ -163,11 +165,60 @@ export const TreeNode = memo(function TreeNode({ nodeId, depth, editable = true 
         ? 'inside'
         : undefined
 
+  const requestDeleteLayer = () => {
+    if (!editable || isRoot || node.locked) return
+    confirmDelete({
+      title: 'Delete layer?',
+      description: `${displayName} and any of its children will be removed. This can be undone with Ctrl/Cmd+Z.`,
+      commit: () => deleteNode(nodeId),
+    })
+  }
+
+  const requestDeleteSelection = () => {
+    if (!editable || isRoot || node.locked) return
+
+    const state = useEditorStore.getState()
+    const page = selectActiveCanvasPage(state)
+    if (!page) return
+
+    const selection = state.selectedNodeIds.includes(nodeId)
+      ? state.selectedNodeIds
+      : [nodeId]
+    const deletableIds = selection.filter((id) => {
+      const candidate = page.nodes[id]
+      return Boolean(candidate) && id !== page.rootNodeId && !candidate?.locked
+    })
+    if (deletableIds.length === 0) return
+
+    if (!state.selectedNodeIds.includes(nodeId)) {
+      selectLayerNode()
+    }
+
+    if (deletableIds.length === 1) {
+      requestDeleteLayer()
+      return
+    }
+
+    confirmDelete({
+      title: 'Delete layers?',
+      description: `${deletableIds.length} layers and any children will be removed. This can be undone with Ctrl/Cmd+Z.`,
+      commit: () => deleteNodes([...deletableIds]),
+    })
+  }
+
   // ── Keyboard navigation ───────────────────────────────────────────────────
   const handleKeyDown = (e: React.KeyboardEvent) => {
     // When the rename input is active, all key handling is delegated to
     // handleRenameKeyDown on the input itself — don't intercept here.
     if (isRenaming) return
+
+    if (getKeybindingForCommand('layers.delete')?.match(e)) {
+      e.preventDefault()
+      e.stopPropagation()
+      requestDeleteSelection()
+      return
+    }
+
     switch (e.key) {
       case 'Enter':
       case ' ':
@@ -374,11 +425,7 @@ export const TreeNode = memo(function TreeNode({ nodeId, depth, editable = true 
           onClose={() => setContextMenu(null)}
           onDelete={() => {
             setContextMenu(null)
-            confirmDelete({
-              title: 'Delete layer?',
-              description: `${displayName} and any of its children will be removed. This can be undone with Ctrl/Cmd+Z.`,
-              commit: () => deleteNode(nodeId),
-            })
+            requestDeleteLayer()
           }}
           onDuplicate={() => { duplicateNode(nodeId); setContextMenu(null) }}
           onRename={() => { setContextMenu(null); openRename() }}

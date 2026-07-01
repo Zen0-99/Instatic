@@ -169,6 +169,14 @@ export const WriteCodeAssetInputSchema = Type.Object({
   type: CodeAssetTypeSchema,
   content: Type.String(),
   runtime: Type.Optional(Type.Record(Type.String(), Type.Unknown())),
+  dependencies: Type.Optional(Type.Record(
+    Type.String(),
+    Type.String({ minLength: 1 }),
+    {
+      description:
+        'Runtime npm dependencies required by a module script. Keys are package names, values are semver versions/ranges. Only valid when type is "script".',
+    },
+  )),
 })
 export type WriteCodeAssetInput = Static<typeof WriteCodeAssetInputSchema>
 

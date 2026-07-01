@@ -27,7 +27,7 @@ const SCOPE_ORDER: ReadonlyArray<Scope> = ['global', 'editor', 'canvas', 'panels
 const SCOPE_LABELS: Record<Scope, string> = {
   global:  'Global',
   editor:  'Editor',
-  canvas:  'Canvas',
+  canvas:  'Canvas & Layers',
   panels:  'Panels',
 }
 

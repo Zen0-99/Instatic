@@ -47,7 +47,8 @@ Read [`docs/architecture.md`](docs/architecture.md) for the system overview, [`d
 - **Plugins:** Zip packages with a `plugin.json` manifest, lifecycle hooks. Server entrypoints and canvas module packs run inside a **QuickJS-WASM sandbox** — no Node/Bun ambient access, network gated by `network.outbound` permission + `networkAllowedHosts`. The VM bootstrap (SDK factory + `__run*` dispatchers) is authored as typed TS in `server/plugins/quickjs/bootstrap/src/` and bundled to committed string artifacts in `bootstrap/generated/` — after editing the source run `bun run bootstrap:sync` (gated by `plugin-bootstrap-fresh.test.ts`). Permission enforcement everywhere (VM, host, editor) validates against `grantedPermissions`, never the declared `permissions` array. Feature doc: [`docs/features/plugin-system.md`](docs/features/plugin-system.md).
 - **Routing:** In-house router at `src/admin/lib/routing/`. Replaces `react-router-dom`. Use it for all internal admin navigation, including links rendered from the site editor. `react-router-dom` is banned, raw `<a href="/admin...">` hard navigations are banned in admin UI, and `src/core/` + `src/modules/` must not import the admin router. Gated by `admin-router-usage.test.ts`.
 - **Icons:** `pixel-art-icons/icons/<name>` — deep-imported, tree-shakeable. Vendored at `vendor/pixel-art-icons/`. No `lucide-react`, no inline SVG strings — gated by `no-third-party-icons.test.ts`, `direct-icon-imports.test.ts`. Add a new icon by importing it and running `bun run icons:sync`.
-- **AI providers:** No provider SDKs. Each driver in `server/ai/drivers/` talks directly to its provider's REST API over HTTP/SSE, sharing one multi-turn tool loop (`drivers/http/toolLoop.ts`). `@anthropic-ai/sdk`, `@anthropic-ai/claude-agent-sdk`, `@openai/agents`, `@openrouter/agent`, and `@modelcontextprotocol/sdk` are all banned repo-wide — gated by `ai-driver-isolation.test.ts`.
+- **AI providers:** No provider SDKs. Each driver in `server/ai/drivers/` talks directly to its provider's REST API over HTTP/SSE, sharing one multi-turn tool loop (`drivers/http/toolLoop.ts`). `@anthropic-ai/sdk`, `@anthropic-ai/claude-agent-sdk`, `@openai/agents`, and `@openrouter/agent` are banned repo-wide. `@modelcontextprotocol/sdk` is **scoped, not banned**: allowed only under `server/ai/mcp/` (Instatic's MCP *server* implements a real wire protocol), still banned in the drivers and the browser. Gated by `ai-driver-isolation.test.ts`.
+- **MCP server:** Instatic exposes its CMS tools to external MCP clients (Claude Code, Codex, remote agents) at `/_instatic/mcp`, authenticated by per-connector bearer tokens. Thin adapter over the existing tool engine: headless reads (content reads + `read_styles`) run in-process; ALL page editing (the full set of browser-execution editor tools) is relayed to the connector owner's **open editor** via the live editor bridge (`server/ai/mcp/editorBridge.ts` + `useEditorMcpBridge` in `SitePage`), reusing the chat bridge machinery — the live editor store is the single source of truth (no headless DB-mutating page-tree tool, which would desync). Feature doc: [`docs/features/mcp-connectors.md`](docs/features/mcp-connectors.md).
 - **Tree primitive:** Every tree-of-nodes — pages, Visual Components, slot fills — uses one shape: `NodeTree<TNode>` in `src/core/page-tree/treeSchema.ts`. Mutations are tree-agnostic. Reference: [`docs/reference/page-tree.md`](docs/reference/page-tree.md).
 - **Publishing:** Three-layer pipeline. **Layer A** bakes fully-static pages to `uploads/published/current/<route>.html` at publish time via a two-slot symlink swap (`server/publish/staticArtefact.ts`). **Layer B** is an in-memory LRU keyed by `(urlPath, queryString, publishVersion)` for dynamic routes (`server/publish/renderCache.ts`); `bumpPublishVersion()` evicts wholesale on every publish. **Layer C** emits `<instatic-hole>` placeholders for nodes auto-detected as request-dependent; a ~668 B `IntersectionObserver` runtime lazy-fetches each fragment from `/_instatic/hole/<nodeId>`. Auto-detection lives in `src/core/publisher/dynamicDetection.ts` — one walker, four rules. Single entry: `server/publish/publicRouter.ts:renderPublicResolution`. Full design: [`docs/features/publisher.md`](docs/features/publisher.md).
 - **Tests:** `bun test`. Architectural rules in `src/__tests__/architecture/*` — when *your* change drifts a structural rule, fix the rule's gate test in the same change.
@@ -73,13 +74,15 @@ Source of truth for layout details: [`docs/architecture.md`](docs/architecture.m
 
 ## Development status — READ THIS FIRST
 
-**This project is in PRE-RELEASE. There are no external users. There is no production traffic. There is no installed base. Nothing is shipped.**
+**This project has live, self-hosted installations with real user data.** That has direct consequences for how Claude must approach changes in this repo.
 
-That has direct consequences for how Claude must approach changes in this repo.
+**For code** (TypeScript APIs, function signatures, types, modules, plugin SDK): there are no backward-compatibility obligations. Refactor freely, rename boldly, delete dead code, fix bad abstractions — the aggressive stance throughout this section applies in full.
+
+**Database schema is the exception.** Live installations run the migration runner on every pull. A destructive schema change breaks those installations permanently. Every schema change ships as an additive, non-destructive migration. See "Database, schema, and stored data" below.
 
 ### No backward compatibility. Ever.
 
-There is nothing to be backward compatible with.
+There is nothing to be backward compatible with — **for code.** TypeScript APIs, function signatures, types, and module shapes can change freely. **Database schema is the explicit exception: see "Database, schema, and stored data" below.**
 
 - **Do not preserve old function signatures, schemas, types, or APIs out of compatibility concern.** If a cleaner shape exists, change it everywhere and delete the old one.
 - **Do not add deprecation shims.** Don't keep a `legacyFoo()` that forwards to `foo()`. Just rename it and update callers.
@@ -109,22 +112,23 @@ What you must not do:
 
 ### Database, schema, and stored data
 
-There is no production data to protect. Treat the schema like code:
+**The database is NOT disposable.** Live, self-hosted installations exist with real user data. The migration runner executes every unrun migration on startup — a destructive schema change breaks those installations on the next pull.
 
-- If a column, table, or migration is wrong, change the migration. Do not write a "compatibility migration" on top of a bad migration.
-- If stored shapes (page trees, plugin manifests, settings) need to change, change them and update everything that reads/writes them.
-- Local dev databases are disposable. It is acceptable for a change to require dropping the local DB and re-running migrations from scratch.
+- **Every schema change ships as a new additive migration.** Add it to BOTH `migrations-pg.ts` AND `migrations-sqlite.ts` with the next sequential ID and the same semantic effect. See "Database dialect rules" for the mechanics.
+- **Never edit or rewrite a migration that has already been committed.** If a past migration has the wrong shape, ship a new forward migration that corrects it.
+- **Never make a change that requires dropping or recreating the database.** No `DROP TABLE`, no `DROP COLUMN` (unless the column was added in the same unreleased branch and no installation has run that migration yet), no table rebuilds. Use additive `ADD COLUMN` (nullable or with a constant `DEFAULT`), backfill with `UPDATE`, and defer destructive cleanup to a future migration only when the transition is complete.
+- **If stored JSON shapes (page trees, plugin manifests, settings) need to change,** change the reader/writer code to handle the new shape and update everything that reads/writes them. A data-migration `UPDATE` in a new migration is the right tool for bulk shape changes on existing rows.
 
 ### Plugin SDK and public-looking surfaces
 
-The plugin SDK, runtime, and manifest format *look* like a public contract but they are also pre-release. Nothing external depends on them yet.
+The plugin SDK, runtime, and manifest format *look* like a public contract but carry no backward-compatibility guarantee yet — no third-party plugins have been published against them.
 
 - If the SDK shape is wrong, change it. Update `examples/plugins/template/` and [`docs/features/plugin-system.md`](docs/features/plugin-system.md) in the same change.
 - The `apiVersion` field is not yet a stability promise. Don't invent legacy adapters for older `apiVersion` values.
 
 ### Default disposition on every change
 
-Choose (A) the cleaner architecture, requiring edits across several files, over (B) a smaller diff that leaves the architecture slightly worse. **Always choose (A).** The whole point of being pre-release is that this is the cheapest moment in the project's life to do (A).
+Choose (A) the cleaner architecture, requiring edits across several files, over (B) a smaller diff that leaves the architecture slightly worse. **Always choose (A).** The cheapest moment in a project's life to fix bad abstractions is before they calcify — don't defer it.
 
 If you are unsure whether a refactor is in scope, default to *yes, do it*, and explain in the summary what you cleaned up and why. Do not ask permission to delete dead code, rename a poorly-named symbol, or fix a bad abstraction — just do it.
 
@@ -203,7 +207,8 @@ Every untyped boundary uses TypeBox. Inside the boundary, code trusts the parsed
 ### UI error handling
 
 - Async UI handlers wrap in `try/catch`. Logged errors use the prefix `console.error('[<component>] <description>:', err)`.
-- User-visible errors go through component state + `role="alert"` (or `role="status"` for non-blocking). Never `alert()` / `confirm()` / `prompt()` — gated by `no-native-browser-dialogs.test.ts`.
+- **Operation failures surface through the global toast bus** — `pushToast({ kind: 'error', title, body })` from `@ui/components/Toast` — for anything a user triggered that then failed (save / import / delete / publish / apply / network call). This is the default for user-visible errors. The single mounted `<ToastProvider />` renders them with `role="alert"`, so you don't hand-roll the a11y. Use `getErrorMessage(err, …)` for the `body`.
+- The **only** exception is **field-local, non-blocking validation** that belongs next to a specific control inside a form (e.g. an invalid token name in a dialog) — that may stay inline with `role="alert"` / `role="status"`. Operation results (a request that failed) are NOT field-local; toast them. Never `alert()` / `confirm()` / `prompt()` — gated by `no-native-browser-dialogs.test.ts`.
 - Error message extraction: `getErrorMessage(err, 'Unknown <thing> error')` from `src/core/utils/errorMessage.ts` — handles the `instanceof Error` check and the empty-message fallback in one place.
 - Soft fallbacks (corrupted localStorage, missing optional config): `parseJsonWithFallback` + continue with defaults.
 - Hard fallbacks (corrupted required document, broken HTTP envelope): let the error bubble to the nearest error boundary. Do not silently mask.
@@ -226,7 +231,7 @@ Detailed: [`docs/reference/database-dialects.md`](docs/reference/database-dialec
 2. **JSON columns end in `_json`.** The SQLite adapter auto-parses `*_json` strings on read and auto-stringifies plain objects on write. Gated by `db-json-column-naming.test.ts`.
 3. **Migrations are split per dialect with identical IDs.** `server/db/migrations-pg.ts` (PG dialect) and `server/db/migrations-sqlite.ts` (SQLite dialect). Parity gated by `migration-parity.test.ts`.
 
-**Adding a new migration:** add it to BOTH `migrations-pg.ts` and `migrations-sqlite.ts` with the same ID and the same semantic effect.
+**Adding a new migration:** add it to BOTH `migrations-pg.ts` and `migrations-sqlite.ts` with the next sequential ID and the same semantic effect. Migrations must be **additive and non-destructive** — live installations run the migration runner on every pull. Never rewrite or delete a committed migration; if a past migration is wrong, ship a new forward migration that corrects it. Never write a migration that requires dropping or recreating the database.
 
 **Adding a JSON column:** name it `*_json`.
 
@@ -325,8 +330,8 @@ The bar is: **your work is clean.**
 
 ## TL;DR
 
-1. Pre-release. No users to protect.
-2. Never preserve backward compatibility, never leave band-aids, never duplicate "old vs new" code paths.
+1. Live installations exist with real user data. Refactor **code** freely — no compat shims needed. **DB schema is the exception: every change ships as an additive, non-destructive migration; never rewrite a committed migration or require a DB drop.**
+2. Never preserve backward compatibility in code, never leave band-aids, never duplicate "old vs new" code paths.
 3. If the architecture would be cleaner with a multi-file refactor — do the refactor, in this change.
 4. Every untyped boundary goes through TypeBox. `as Foo` at a JSON boundary is a bug. `zod` is banned repo-wide — AI drivers pass TypeBox schemas straight to providers as JSON Schema.
 5. UI uses shared primitives from `src/ui/`, design tokens from `src/styles/globals.css`, CSS Modules only. The React Compiler is on — no manual `useMemo`/`useCallback`/`memo` (see "React Compiler and memoization" for the three exceptions).

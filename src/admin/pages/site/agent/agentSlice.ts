@@ -18,6 +18,7 @@
 import { nanoid } from 'nanoid'
 import type { EditorStoreSliceCreator } from '@site/store/types'
 import { ApiError } from '@core/http'
+import { pushToast } from '@ui/components/Toast'
 import {
   listConversations,
   getConversation,
@@ -271,9 +272,12 @@ export function createAgentSlice(
     },
 
     startNewAgentConversation() {
-      // Same reset as clearAgentMessages — kept as a distinct action only for
-      // intent clarity (the UI's "+ New chat" button calls this).
+      // Reset to a fresh conversation, then re-apply the scope default so the
+      // composer stays ready (provider + model picked) instead of dropping to
+      // the "choose a model" lock. `loadScopeDefault` only fills the gap when
+      // nothing is chosen — exactly the post-reset state.
       get().clearAgentMessages()
+      void get().loadScopeDefault()
     },
 
     async loadAgentConversations() {
@@ -282,6 +286,12 @@ export function createAgentSlice(
         set({ agentConversations: conversations })
       } catch (err) {
         console.error('[AgentSlice] Failed to load conversations:', err)
+        pushToast({
+          kind: 'error',
+          title: "Couldn't load conversations",
+          body: getErrorMessage(err, 'Failed to load your conversations.'),
+          location: 'site-editor',
+        })
       }
     },
 
@@ -309,6 +319,7 @@ export function createAgentSlice(
     async deleteAgentConversation(id: string) {
       try {
         await deleteConversation(id)
+        const wasActive = get().agentConversationId === id
         set((state) => {
           state.agentConversations = state.agentConversations.filter((c) => c.id !== id)
           // Deleting the active conversation resets it through the same key-set
@@ -318,8 +329,17 @@ export function createAgentSlice(
             Object.assign(state, conversationResetState())
           }
         })
+        // If the active chat was the one deleted, re-apply the scope default so
+        // the panel stays ready instead of dropping to the "choose a model" lock.
+        if (wasActive) void get().loadScopeDefault()
       } catch (err) {
         console.error('[AgentSlice] Failed to delete conversation:', err)
+        pushToast({
+          kind: 'error',
+          title: "Couldn't delete conversation",
+          body: getErrorMessage(err, 'Failed to delete the conversation.'),
+          location: 'site-editor',
+        })
       }
     },
 
@@ -352,11 +372,18 @@ export function createAgentSlice(
       // conversation's provider or an explicit user pick.
       if (get().agentConversationId) return
       if (get().agentActiveCredentialId && get().agentActiveModelId) return
-      const creds = await resolveScopeCredentials(get, config)
+      let creds: ResolvedCredentials | null
+      try {
+        creds = await resolveScopeCredentials(get, config)
+      } catch (err) {
+        // A failed defaults lookup is soft: leave the picker empty so the user
+        // can pick a model. The send-time path still surfaces the actionable
+        // no-provider error if they send without choosing.
+        console.error('[AgentSlice] Failed to load scope default:', err)
+        return
+      }
       // No default configured for this scope: leave the picker empty (shows
-      // its "Choose a model" placeholder) and let the user pick one. The
-      // send-time path still surfaces the actionable no-provider error if they
-      // send without choosing.
+      // its "Choose a model" placeholder) and let the user pick one.
       if (!creds) return
       set({
         agentActiveCredentialId: creds.credentialId,

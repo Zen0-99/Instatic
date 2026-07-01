@@ -288,15 +288,19 @@ Used by destructive commands: delete user, sign out all devices, revoke session,
 | Key                  | Action                                                |
 |----------------------|-------------------------------------------------------|
 | ⌘K / Ctrl+K          | Open / close                                          |
+| ⌘I / Ctrl+I          | Open the AI assistant panel                           |
+| ⌘, / Ctrl+,          | Open Settings                                         |
 | Esc                  | Clear query (or close if empty)                       |
 | Arrow up / down      | Move selection                                        |
 | Enter                | Run selected (twice for `destructive` commands)       |
 | Tab                  | Cycle scope                                           |
 | Backspace (empty)    | Pop scope                                             |
-| ⌘?                   | Show all keybindings                                  |
+| ?                    | Show all keybindings                                  |
 | Custom command shortcuts | Per-command entry in `keybindings.ts`             |
 
-The keybindings registry is **the single source of truth** for shortcuts — gated by `keybindings-registry-single-source.test.ts`. Don't add raw `keydown` listeners in components; register a command with a shortcut in `keybindings.ts`.
+Selected-layer shortcuts are command shortcuts too. `⌘C` / `Ctrl+C`, `⌘X` / `Ctrl+X`, `⌘V` / `Ctrl+V`, and `⌘D` / `Ctrl+D` run when focus is on the canvas or the Layers tree. `⌘⌫` / `Ctrl+Backspace` deletes the selected layer from either surface through the normal delete confirmation flow; plain Delete / Backspace remains accepted by the canvas handler for selected canvas nodes.
+
+The keybindings registry is **the single source of truth** for shortcuts — gated by `keybindings-registry-single-source.test.ts`. Register each command shortcut in `keybindings.ts`; component-owned handlers may consume those registered bindings when a surface needs local selection or confirmation behavior, but they must not hard-code a second shortcut definition.
 
 ---
 

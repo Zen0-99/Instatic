@@ -6,6 +6,59 @@ This project is pre-1.0. Breaking changes may appear in minor or patch releases 
 
 ## Unreleased
 
+## 0.0.9 - 2026-07-01
+
+### AI and integrations
+
+- Redesigned the AI assistant panel message stream: agent tool calls render as compact rows with a per-tool icon, a human-readable label, and status, with consecutive calls grouped under one turn.
+- Added inline previews to tool calls — colour-token swatches for palette updates, and the captured screenshot for render-snapshot.
+- Auto-titled conversations from the first prompt instead of "New conversation", and gave each message turn an avatar and a relative timestamp.
+- Fixed the AI panel dropping the selected model when starting a new chat, and surfaced conversation delete/load failures as toasts.
+
+### Editor and framework
+
+- Added a body context menu when right-clicking empty space on the canvas.
+
+## 0.0.8 - 2026-07-01
+
+### Editor and framework
+
+- Unified Core Framework management into one tabbed panel with a declarative Full / Variables / None manager.
+- Consolidated Layers, Site, Code, and Media into one Explorer panel, including a dedicated Code tab and refreshed media browsing.
+- Added canvas support for dragging media assets directly from the Media workspace.
+- Fixed onboarding framework import defaults and retained pending site reloads so imported framework changes appear in the editor without a hard refresh.
+- Fixed canvas mouse-wheel behavior so normal wheel scrolling stays vertical and Shift+wheel pans sideways.
+- Kept the highlighted Spotlight result scrolled into view during keyboard navigation.
+
+### AI and integrations
+
+- Made AI token tools more tolerant of model-authored argument aliases for framework typography and spacing updates.
+
+### Security
+
+- Added central security response headers for admin and upload routes.
+- Revalidated and sanitized imported archive media, including SVG payloads, before writing them to disk.
+- Added expiry timestamps for MCP connector tokens, with existing tokens backfilled to a 90-day grace period.
+
+## 0.0.7 - 2026-06-29
+
+### AI & integrations
+
+- Added MCP connectors so external AI clients can use the CMS tool surface through scoped connector tokens.
+
+### Design and onboarding
+
+- Imported Core Framework defaults from onboarding so new sites start with the selected design system values in place.
+
+### Security
+
+- Hardened sanitizers and regular expressions flagged by CodeQL.
+
+### Documentation and deployment
+
+- Replaced the README hero screenshot with a YouTube-linked introductory video thumbnail.
+- Added README guidance explaining that image-based installs update by redeploying the latest image.
+
 ## 0.0.6 - 2026-06-26
 
 ### AI & agent tooling

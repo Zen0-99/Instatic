@@ -16,7 +16,8 @@
  *   - scope      → where the binding is active:
  *                  'global'  = fires anywhere in the admin shell
  *                  'editor'  = fires within the editor workspace
- *                  'canvas'  = fires when the canvas element has focus
+ *                  'canvas'  = fires on layer-operation surfaces
+ *                              (canvas or Layers tree)
  *                  'panels'  = fires in the panel rail / sidebar region
  *   - ignoreInEditableField → advisory flag; handlers enforce this themselves.
  *
@@ -125,14 +126,6 @@ export const KEYBINDINGS: ReadonlyArray<KeybindingDefinition> = [
   },
 
   {
-    commandId: 'account.signOut',
-    shortcut: { mac: '⌘⇧Q', win: 'Ctrl+Shift+Q' },
-    match: (e) => (e.metaKey || e.ctrlKey) && e.shiftKey && e.key.toLowerCase() === 'q',
-    scope: 'global',
-    ignoreInEditableField: true,
-  },
-
-  {
     commandId: 'help.shortcuts',
     shortcut: { mac: '?', win: '?' },
     match: (e) => e.key === '?' && !e.metaKey && !e.ctrlKey,
@@ -170,40 +163,62 @@ export const KEYBINDINGS: ReadonlyArray<KeybindingDefinition> = [
     scope: 'panels',
   },
 
-  // ── Canvas (layer operations — fire when canvas has focus) ──────────────────
+  {
+    commandId: 'ai.open',
+    shortcut: { mac: '⌘I', win: 'Ctrl+I' },
+    ariaKeyshortcuts: isPlatformMac() ? 'Meta+I' : 'Control+I',
+    match: (e) =>
+      (e.metaKey || e.ctrlKey) &&
+      !e.shiftKey &&
+      !e.altKey &&
+      e.key.toLowerCase() === 'i',
+    scope: 'panels',
+    ignoreInEditableField: true,
+    capability: 'ai.chat',
+  },
+
+  // ── Canvas + Layers tree (layer operations) ─────────────────────────────────
 
   {
     commandId: 'layers.duplicate',
     shortcut: { mac: '⌘D', win: 'Ctrl+D' },
     match: (e) => (e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'd',
     scope: 'canvas',
+    ignoreInEditableField: true,
   },
 
   {
     commandId: 'layers.copy',
     shortcut: { mac: '⌘C', win: 'Ctrl+C' },
-    match: (e) => (e.metaKey || e.ctrlKey) && e.key === 'c',
+    match: (e) => (e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'c',
     scope: 'canvas',
+    ignoreInEditableField: true,
   },
 
   {
     commandId: 'layers.cut',
     shortcut: { mac: '⌘X', win: 'Ctrl+X' },
-    match: (e) => (e.metaKey || e.ctrlKey) && e.key === 'x',
+    match: (e) => (e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'x',
     scope: 'canvas',
+    ignoreInEditableField: true,
   },
 
   {
     commandId: 'layers.paste',
     shortcut: { mac: '⌘V', win: 'Ctrl+V' },
-    match: (e) => (e.metaKey || e.ctrlKey) && e.key === 'v',
+    match: (e) => (e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'v',
     scope: 'canvas',
+    ignoreInEditableField: true,
   },
 
   {
     commandId: 'layers.delete',
-    shortcut: { mac: 'Delete', win: 'Delete' },
-    match: (e) => e.key === 'Delete' || e.key === 'Backspace',
+    shortcut: { mac: '⌘⌫', win: 'Ctrl+Backspace' },
+    ariaKeyshortcuts: isPlatformMac() ? 'Meta+Backspace' : 'Control+Backspace',
+    match: (e) =>
+      ((e.metaKey || e.ctrlKey) && !e.shiftKey && !e.altKey && e.key === 'Backspace') ||
+      (!e.metaKey && !e.ctrlKey && !e.shiftKey && !e.altKey &&
+        (e.key === 'Delete' || e.key === 'Backspace')),
     scope: 'canvas',
     ignoreInEditableField: true,
   },

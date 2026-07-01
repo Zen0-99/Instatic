@@ -11,7 +11,6 @@
  * Input support:
  * - Ctrl/Cmd + wheel → zoom towards cursor
  * - Plain wheel → pan vertically (and horizontally with shift)
- * - Middle mouse drag → pan
  * - Space + left-drag → pan
  * - Pinch (touch) → zoom+pan
  * - +/- keys → zoom in/out (committed immediately)
@@ -31,6 +30,7 @@ import {
   incrementalScaleFromPinchMovement,
 } from '@site/canvas/math'
 import { panToCenterBreakpointFrame } from '@site/canvas/canvasDomGeometry'
+import { panDeltaFromWheel, setCanvasSpacePanActive } from '@site/canvas/canvasPanInput'
 
 interface Transform {
   zoom: number
@@ -262,16 +262,19 @@ export function useCanvas({ canvasRootRef, transformLayerRef, enabled }: UseCanv
         ) return
         e.preventDefault()
         spaceActiveRef.current = true
+        setCanvasSpacePanActive(document, 'parentDocument', true)
       }
     }
     function onKeyUp(e: KeyboardEvent) {
       if (e.code === 'Space') {
         spaceActiveRef.current = false
+        setCanvasSpacePanActive(document, 'parentDocument', false)
       }
     }
     document.addEventListener('keydown', onKeyDown)
     document.addEventListener('keyup', onKeyUp)
     return () => {
+      setCanvasSpacePanActive(document, 'parentDocument', false)
       document.removeEventListener('keydown', onKeyDown)
       document.removeEventListener('keyup', onKeyUp)
     }
@@ -414,9 +417,8 @@ export function useCanvas({ canvasRootRef, transformLayerRef, enabled }: UseCanv
         return
       }
 
-      const wheelX = event.shiftKey && event.deltaX === 0 ? event.deltaY : event.deltaX
-      const wheelY = event.shiftKey ? 0 : event.deltaY
-      const next = applyPan(t.panX, t.panY, -wheelX, -wheelY)
+      const { dx, dy } = panDeltaFromWheel(event)
+      const next = applyPan(t.panX, t.panY, dx, dy)
       updateTransform({ zoom: t.zoom, ...next })
     }
 
@@ -431,12 +433,11 @@ export function useCanvas({ canvasRootRef, transformLayerRef, enabled }: UseCanv
   const bind = useGesture(
     {
       onDrag: ({ delta: [dx, dy], buttons, first, last }) => {
-        const isMiddleButton = (buttons & 4) !== 0
-        const isSpacePan = spaceActiveRef.current
+        if (first) {
+          isDraggingRef.current = spaceActiveRef.current && (buttons & 1) !== 0
+        }
 
-        if (!isMiddleButton && !isSpacePan) return
-
-        if (first) isDraggingRef.current = true
+        if (!isDraggingRef.current) return
         if (last) isDraggingRef.current = false
 
         const t = transformRef.current
@@ -497,7 +498,7 @@ export function useCanvas({ canvasRootRef, transformLayerRef, enabled }: UseCanv
     handleKeyDown,
     panBy,
     centerOnBreakpointFrame,
-    /** Whether a space-pan or middle-mouse drag is in progress */
+    /** Whether a space-pan drag is in progress */
     isDragging: isDraggingRef,
   }
 }

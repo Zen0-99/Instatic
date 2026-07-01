@@ -62,6 +62,7 @@ async function runLayerCommand(commandId: string, selectedNodeIds: string[]): Pr
       canUndo: false,
       canRedo: false,
       activeBreakpointId: 'desktop',
+      activeInlineEdit: false,
     },
     args: {},
     navigate: () => {},

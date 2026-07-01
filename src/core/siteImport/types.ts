@@ -243,6 +243,18 @@ export interface ImportFontToken {
 }
 
 /**
+ * An npm package required by an imported runtime module script.
+ *
+ * Super Import derives these when a source script imports an ESM CDN URL that
+ * maps cleanly to an npm package, then rewrites that import to the bare package
+ * specifier so the normal self-hosted dependency resolver can install it.
+ */
+export interface ImportScriptDependency {
+  name: string
+  version: string
+}
+
+/**
  * A JavaScript file linked by one or more imported HTML pages. Committed as a
  * `SiteFile` (`type: 'script'`) plus page-scoped `site.runtime.scripts` entry.
  * `content` is the decoded UTF-8 source.
@@ -260,6 +272,8 @@ export interface ImportScript {
   pageIds?: string[]
   /** Runtime ordering; lower runs earlier. Derived from first HTML occurrence. */
   priority: number
+  /** npm dependencies needed by this module script after import conversion. */
+  dependencies?: ImportScriptDependency[]
 }
 
 /**

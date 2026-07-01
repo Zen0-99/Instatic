@@ -190,7 +190,7 @@ test.describe('visual builder', () => {
     await expect(undoButton).not.toHaveAttribute('aria-disabled', 'true')
     await expect(redoButton).toHaveAttribute('aria-disabled', 'true')
 
-    await page.getByTestId('canvas-root').click()
+    await page.getByTestId('canvas-root').focus()
     await page.keyboard.press(`${shortcutModifier}+Z`)
     await expect(textNode).toHaveCount(0)
     await expect(undoButton).toHaveAttribute('aria-disabled', 'true')
@@ -220,6 +220,65 @@ test.describe('visual builder', () => {
     await expect(textNode).toHaveCount(0)
     await expect(undoButton).toHaveAttribute('aria-disabled', 'true')
     await expect(redoButton).toHaveAttribute('aria-disabled', 'true')
+  })
+
+  test('runs direct panel and canvas clipboard shortcuts (BUILDER-005)', async ({
+    page,
+  }) => {
+    await openBlankPage(page, 'Builder shortcuts')
+
+    const shortcutModifier = process.platform === 'darwin' ? 'Meta' : 'Control'
+
+    await page.getByTestId('canvas-root').focus()
+    await page.keyboard.press(`${shortcutModifier}+I`)
+    const assistantPanel = page.getByRole('complementary', { name: 'AI Assistant' })
+    await expect(assistantPanel).toBeVisible()
+
+    await page.getByTestId('panel-close-agent').click()
+    await expect(assistantPanel).toBeHidden()
+
+    const canvasShortcutText = `Canvas shortcut text ${Date.now().toString(36)}`
+    await insertNotchModule(page, 'text')
+    await setPropValue(page, 'text', canvasShortcutText)
+    await openLayersPanel(page)
+
+    const tree = page.getByRole('tree', { name: 'Page element tree' })
+    const textNodes = tree.getByRole('treeitem', { name: 'Text' })
+    await expect(textNodes).toHaveCount(1)
+    await textNodes.first().click()
+
+    await page.getByTestId('canvas-root').focus()
+    await page.keyboard.press(`${shortcutModifier}+C`)
+    await page.keyboard.press(`${shortcutModifier}+V`)
+
+    await expect(textNodes).toHaveCount(2)
+
+    await textNodes.first().click()
+    await expect(textNodes.first()).toBeFocused()
+    await page.keyboard.press(`${shortcutModifier}+C`)
+    await page.keyboard.press(`${shortcutModifier}+V`)
+    await expect(textNodes).toHaveCount(3)
+
+    await textNodes.first().click()
+    await expect(textNodes.first()).toBeFocused()
+    await page.keyboard.press(`${shortcutModifier}+Backspace`)
+    await confirmDeleteIfShown(page, 'Delete layer?')
+    await expect(textNodes).toHaveCount(2)
+
+    const canvasText = canvasFrame(page).getByText(canvasShortcutText, { exact: true }).first()
+    await canvasText.click()
+    await page.keyboard.press(`${shortcutModifier}+C`)
+    await page.keyboard.press(`${shortcutModifier}+V`)
+    await expect(textNodes).toHaveCount(3)
+
+    await canvasText.click()
+    await page.keyboard.press(`${shortcutModifier}+D`)
+    await expect(textNodes).toHaveCount(4)
+
+    await canvasText.click()
+    await page.keyboard.press(`${shortcutModifier}+Backspace`)
+    await confirmDeleteIfShown(page, 'Delete layer?')
+    await expect(textNodes).toHaveCount(3)
   })
 
   test('keeps generated slot layers locked while allowing slot content insertion (BUILDER-003 locked slots)', async ({

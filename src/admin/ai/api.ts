@@ -13,7 +13,14 @@
 
 import { Type, type Static } from '@core/utils/typeboxHelpers'
 import { apiRequest, ApiError } from '@core/http'
-import { AiContentBlockSchema } from '@core/ai'
+import {
+  AiContentBlockSchema,
+  McpConnectorListSchema,
+  CreateMcpConnectorResultSchema,
+  type McpConnectorView,
+  type CreateMcpConnectorBody,
+  type CreateMcpConnectorResult,
+} from '@core/ai'
 
 // ---------------------------------------------------------------------------
 // Wire schemas — match server projections in:
@@ -27,6 +34,7 @@ const ProviderId = Type.Union([
   Type.Literal('openai'),
   Type.Literal('ollama'),
   Type.Literal('openrouter'),
+  Type.Literal('openai-compatible'),
 ])
 
 const AuthMode = Type.Union([
@@ -170,13 +178,13 @@ export async function listCredentials(signal?: AbortSignal): Promise<CredentialV
 
 export type CreateCredentialBody =
   | {
-      providerId: 'anthropic' | 'openai' | 'ollama' | 'openrouter'
+      providerId: 'anthropic' | 'openai' | 'ollama' | 'openrouter' | 'openai-compatible'
       authMode: 'apiKey'
       displayLabel: string
       apiKey: string
     }
   | {
-      providerId: 'anthropic' | 'openai' | 'ollama' | 'openrouter'
+      providerId: 'anthropic' | 'openai' | 'ollama' | 'openrouter' | 'openai-compatible'
       authMode: 'baseUrl'
       displayLabel: string
       baseUrl: string
@@ -224,7 +232,7 @@ export async function testCredential(id: string): Promise<TestResult> {
 // ---------------------------------------------------------------------------
 
 export async function listModels(
-  providerId: 'anthropic' | 'openai' | 'ollama' | 'openrouter',
+  providerId: 'anthropic' | 'openai' | 'ollama' | 'openrouter' | 'openai-compatible',
   credentialId?: string,
 ): Promise<AiModel[]> {
   const body = await apiRequest(`/admin/api/ai/providers/${providerId}/models`, {
@@ -365,4 +373,29 @@ export async function listAiAudit(
     query: { since, tz: timeZone },
     schema: AuditResponseSchema,
   })
+}
+
+// ---------------------------------------------------------------------------
+// MCP connectors — `/admin/api/ai/mcp/connectors`. Wire shapes are the shared
+// TypeBox schemas from `@core/ai`; the plaintext token is returned only by
+// `createMcpConnector` and is never persisted client-side.
+// ---------------------------------------------------------------------------
+
+const MCP_CONNECTORS_BASE = '/admin/api/ai/mcp/connectors'
+
+export async function listMcpConnectors(signal?: AbortSignal): Promise<McpConnectorView[]> {
+  const body = await apiRequest(MCP_CONNECTORS_BASE, { schema: McpConnectorListSchema, signal })
+  return body.connectors
+}
+
+export async function createMcpConnector(body: CreateMcpConnectorBody): Promise<CreateMcpConnectorResult> {
+  return apiRequest(MCP_CONNECTORS_BASE, {
+    method: 'POST',
+    body,
+    schema: CreateMcpConnectorResultSchema,
+  })
+}
+
+export async function revokeMcpConnector(id: string): Promise<void> {
+  await apiRequest(`${MCP_CONNECTORS_BASE}/${encodeURIComponent(id)}`, { method: 'DELETE' })
 }

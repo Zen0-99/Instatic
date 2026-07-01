@@ -16,6 +16,7 @@ import { nanoid } from 'nanoid'
 import type { Draft } from 'mutative'
 import type { SiteDocument } from '@core/page-tree'
 import type { ImportScript, ImportStylesheet } from '@core/siteImport'
+import { isSafePackageName } from '@core/site-dependencies/packageNames'
 import type { SiteFile } from '@core/files/schemas'
 import { isSafePath, normalizePath } from '@core/files/pathValidation'
 import {
@@ -45,6 +46,31 @@ export function addImportedScripts(
     site.runtime!.scripts[id] = config
     if (siteRuntime?.scripts) siteRuntime.scripts[id] = { ...config }
   })
+}
+
+export function addImportedScriptDependencies(
+  site: Draft<SiteDocument>,
+  scripts: ImportScript[],
+): boolean {
+  let changed = false
+  site.packageJson.dependencies ??= {}
+  site.packageJson.devDependencies ??= {}
+
+  for (const script of scripts) {
+    for (const dependency of script.dependencies ?? []) {
+      if (!isSafePackageName(dependency.name)) continue
+      const version = dependency.version.trim() || '*'
+      if (site.packageJson.dependencies[dependency.name]) continue
+
+      site.packageJson.dependencies[dependency.name] = version
+      if (site.packageJson.devDependencies[dependency.name]) {
+        delete site.packageJson.devDependencies[dependency.name]
+      }
+      changed = true
+    }
+  }
+
+  return changed
 }
 
 /**

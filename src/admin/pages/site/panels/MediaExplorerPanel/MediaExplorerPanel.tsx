@@ -6,6 +6,7 @@ import {
   type KeyboardEvent,
   type MouseEvent,
 } from 'react'
+import { createPortal } from 'react-dom'
 import { useEditorStore } from '@site/store/store'
 import { checkSizeLimit } from '@core/files/upload'
 import {
@@ -19,6 +20,7 @@ import { Panel, useAutoFocusPanel } from '@admin/shared/Panel'
 import { Button } from '@ui/components/Button'
 import { FileUpload } from '@ui/components/FileUpload'
 import { FilterBar, type FilterBarItem } from '@ui/components/FilterBar'
+import { Image } from '@ui/components/Image'
 import { BulletlistSolidIcon } from 'pixel-art-icons/icons/bulletlist-solid'
 import { CheckIcon } from 'pixel-art-icons/icons/check'
 import { Copy2SolidIcon } from 'pixel-art-icons/icons/copy-2-solid'
@@ -48,11 +50,16 @@ import {
 } from './mediaExplorerUtils'
 import { MediaExplorerSection } from './MediaExplorerSection'
 import { MediaExplorerItemList } from './MediaExplorerItem'
+import {
+  mediaDragGhostStyle,
+  mediaDropPreviewStyle,
+  useMediaCanvasInsertionDrag,
+} from './useMediaCanvasInsertionDrag'
 import styles from '../SiteExplorerPanel/SiteExplorerPanel.module.css'
 import { getErrorMessage } from '@core/utils/errorMessage'
 
 interface MediaExplorerPanelProps {
-  variant?: 'docked'
+  variant?: 'docked' | 'tab'
   open?: boolean
   onOpenChange?: (open: boolean) => void
 }
@@ -68,10 +75,8 @@ export function MediaExplorerPanel({
   open,
   onOpenChange,
 }: MediaExplorerPanelProps) {
-  const storeOpen = useEditorStore((s) => s.mediaExplorerPanelOpen)
-  const isOpen = open ?? storeOpen
+  const isOpen = open ?? variant === 'tab'
   const site = useEditorStore((s) => s.site)
-  const setMediaExplorerPanelOpen = useEditorStore((s) => s.setMediaExplorerPanelOpen)
   const updateNodeProps = useEditorStore((s) => s.updateNodeProps)
   const activePageId = useEditorStore((s) => s.activePageId)
   const selectedNodeId = useEditorStore((s) => s.selectedNodeId)
@@ -101,6 +106,7 @@ export function MediaExplorerPanel({
   const [searchQuery, setSearchQuery] = useState('')
   const [mediaFilter, setMediaFilter] = useState<MediaFilter>('all')
   const [viewMode, setViewModeState] = useState<MediaViewMode>(readStoredViewMode)
+  const mediaCanvasDrag = useMediaCanvasInsertionDrag()
   const setViewMode = (mode: MediaViewMode) => {
     setViewModeState(mode)
     writeStoredViewMode(mode)
@@ -122,12 +128,13 @@ export function MediaExplorerPanel({
     return activePage?.nodes[selectedNodeId] ?? null
   })()
 
+  const openMediaAsset = (asset: CmsMediaAsset) => {
+    if (mediaCanvasDrag.shouldSuppressClick()) return
+    openMediaAssetPreview(asset)
+  }
+
   function closePanel() {
-    if (onOpenChange) {
-      onOpenChange(false)
-      return
-    }
-    setMediaExplorerPanelOpen(false)
+    onOpenChange?.(false)
   }
 
   useAutoFocusPanel(panelRef, isOpen)
@@ -160,7 +167,7 @@ export function MediaExplorerPanel({
     }
   }, [isOpen])
 
-  if (!isOpen || variant !== 'docked') return null
+  if (!isOpen) return null
 
   async function handleAssetUpload(e: ChangeEvent<HTMLInputElement>) {
     const pickedFiles = Array.from(e.target.files ?? [])
@@ -305,10 +312,11 @@ export function MediaExplorerPanel({
         title="Media"
         ariaLabel="Media Explorer"
         testId="media-explorer-panel"
+        headerless={variant === 'tab'}
         onClose={closePanel}
       >
         <FilterBar<MediaFilter>
-          items={(['all', 'images', 'videos', 'other'] as MediaFilter[]).map<FilterBarItem<MediaFilter>>((filter) => ({
+          items={(['all', 'images', 'videos'] as MediaFilter[]).map<FilterBarItem<MediaFilter>>((filter) => ({
             value: filter,
             label: filter === 'all' ? 'All' : BUCKET_LABELS[filter],
           }))}
@@ -364,9 +372,10 @@ export function MediaExplorerPanel({
               assets={visibleCmsBuckets.images}
               bucket="images"
               viewMode={viewMode}
-              onOpen={openMediaAssetPreview}
+              onOpen={openMediaAsset}
               onContextMenu={openContextMenu}
               onKeyDown={openKeyboardContextMenu}
+              onPointerDown={mediaCanvasDrag.handlePointerDown}
             />
           </MediaExplorerSection>
         )}
@@ -385,30 +394,10 @@ export function MediaExplorerPanel({
               assets={visibleCmsBuckets.videos}
               bucket="videos"
               viewMode={viewMode}
-              onOpen={openMediaAssetPreview}
+              onOpen={openMediaAsset}
               onContextMenu={openContextMenu}
               onKeyDown={openKeyboardContextMenu}
-            />
-          </MediaExplorerSection>
-        )}
-
-        {shouldShowBucket('other') && (
-          <MediaExplorerSection
-            title="Other"
-            bucket="other"
-            viewMode={viewMode}
-            count={counts.other.length}
-            loading={mediaLoading}
-            emptyLabel={emptyLabel}
-            uploadAction={renderUploadAction()}
-          >
-            <MediaExplorerItemList
-              assets={visibleCmsBuckets.other}
-              bucket="other"
-              viewMode={viewMode}
-              onOpen={openMediaAssetPreview}
-              onContextMenu={openContextMenu}
-              onKeyDown={openKeyboardContextMenu}
+              onPointerDown={mediaCanvasDrag.handlePointerDown}
             />
           </MediaExplorerSection>
         )}
@@ -444,6 +433,55 @@ export function MediaExplorerPanel({
         open={viewerAsset !== null}
         onClose={() => setViewerAssetId(null)}
       />
+
+      {typeof document !== 'undefined' && mediaCanvasDrag.drag?.preview
+        ? createPortal(
+            <div
+              className={styles.mediaCanvasDropPreview}
+              data-position={mediaCanvasDrag.drag.preview.position}
+              style={mediaDropPreviewStyle(mediaCanvasDrag.drag.preview)}
+              aria-hidden="true"
+            >
+              <span className={styles.mediaCanvasDropTag}>
+                {mediaCanvasDrag.drag.preview.label}
+              </span>
+            </div>,
+            document.body,
+          )
+        : null}
+
+      {typeof document !== 'undefined' && mediaCanvasDrag.drag
+        ? createPortal(
+            <div
+              className={styles.mediaCanvasDragGhost}
+              style={mediaDragGhostStyle(mediaCanvasDrag.drag)}
+              aria-hidden="true"
+            >
+              <span className={styles.mediaCanvasDragPreview}>
+                {mediaCanvasDrag.drag.insertion.moduleId === 'base.image' ? (
+                  <Image
+                    asset={mediaCanvasDrag.drag.asset}
+                    alt=""
+                    sizes="96px"
+                    className={styles.mediaCanvasDragImage}
+                  />
+                ) : (
+                  <video
+                    className={styles.mediaCanvasDragVideo}
+                    src={mediaCanvasDrag.drag.asset.publicPath}
+                    aria-label={mediaCanvasDrag.drag.asset.filename}
+                    muted
+                    preload="metadata"
+                  />
+                )}
+              </span>
+              <span className={styles.mediaCanvasDragLabel}>
+                {mediaCanvasDrag.drag.asset.filename}
+              </span>
+            </div>,
+            document.body,
+          )
+        : null}
     </>
   )
 }

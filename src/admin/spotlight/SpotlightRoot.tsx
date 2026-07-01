@@ -32,6 +32,7 @@ import {
   lazy,
   Suspense,
   useEffect,
+  useEffectEvent,
   useReducer,
   useRef,
   useState,
@@ -51,6 +52,7 @@ import { recordRecentCommand } from './recentStore'
 import { SpotlightContext, SpotlightInternalContext } from './spotlightContext'
 import type { SpotlightInternalContextValue } from './spotlightContext'
 import { getKeybindingForCommand } from './keybindings'
+import { findMatchingShortcutCommand } from './shortcutDispatch'
 
 // ─── Lazy dialog chunk ────────────────────────────────────────────────────────
 // Defined at module level so React.lazy doesn't recreate the wrapper on each
@@ -164,15 +166,16 @@ export function SpotlightRoot({ children }: { children: ReactNode }) {
   }, []) // intentionally empty — run once on mount, clean up on unmount
 
   // ─── Editor context snapshot ──────────────────────────────────────────────
-  // Phase 2: subscribe to the editor store while the spotlight is open AND
-  // the active workspace is 'site'. The subscription is established lazily
-  // (dynamic import) so the editor store is never loaded on non-site workspaces.
+  // Subscribe to the editor store while the active workspace is 'site'. This
+  // feeds both Spotlight filtering and direct command-shortcut dispatch.
+  // The subscription is established lazily so the editor store is never loaded
+  // on non-site workspaces.
 
   const [editorCtx, setEditorCtx] = useState<EditorCtxSnapshot | null>(null)
 
   useEffect(() => {
-    // Not on site workspace or palette closed — subscribe nothing; cleanup resets ctx.
-    if (!isOpen || workspace !== 'site') {
+    // Not on site workspace — subscribe nothing; cleanup resets ctx.
+    if (workspace !== 'site') {
       return () => { setEditorCtx(null) }
     }
 
@@ -192,6 +195,7 @@ export function SpotlightRoot({ children }: { children: ReactNode }) {
           canUndo: s.canUndo,
           canRedo: s.canRedo,
           activeBreakpointId: s.activeBreakpointId,
+          activeInlineEdit: s.activeInlineEdit !== null,
         }
       }
 
@@ -216,7 +220,8 @@ export function SpotlightRoot({ children }: { children: ReactNode }) {
           next.activeDocument === last.activeDocument &&
           next.canUndo === last.canUndo &&
           next.canRedo === last.canRedo &&
-          next.activeBreakpointId === last.activeBreakpointId
+          next.activeBreakpointId === last.activeBreakpointId &&
+          next.activeInlineEdit === last.activeInlineEdit
         ) return
         last = next
         setEditorCtx(next)
@@ -228,7 +233,7 @@ export function SpotlightRoot({ children }: { children: ReactNode }) {
       unsubscribe?.()
       setEditorCtx(null)
     }
-  }, [isOpen, workspace])
+  }, [workspace])
 
   // ─── Build CommandContext ─────────────────────────────────────────────────
 
@@ -334,6 +339,19 @@ export function SpotlightRoot({ children }: { children: ReactNode }) {
     await runCommandWithArgs(command, {})
   }
 
+  const runShortcut = (event: KeyboardEvent): boolean => {
+    if (!commandContext) return false
+    const shortcutCommand = findMatchingShortcutCommand(event, commandContext)
+    if (!shortcutCommand) return false
+
+    event.preventDefault()
+    event.stopPropagation()
+    void runCommand(shortcutCommand)
+    return true
+  }
+
+  const runShortcutFromGlobalListener = useEffectEvent((event: KeyboardEvent) => runShortcut(event))
+
   // ─── Global Cmd+K / Ctrl+K listener ──────────────────────────────────────
   // Capture phase so the listener fires before editor keydown handlers.
   // The match predicate comes from the keybindings registry — single source of truth.
@@ -349,6 +367,8 @@ export function SpotlightRoot({ children }: { children: ReactNode }) {
         dispatch({ type: 'TOGGLE' })
         return
       }
+
+      if (runShortcutFromGlobalListener(event)) return
 
       if (currentPhase !== 'open') return
 
@@ -390,6 +410,7 @@ export function SpotlightRoot({ children }: { children: ReactNode }) {
     open: () => dispatch({ type: 'OPEN' }),
     close: () => dispatch({ type: 'CLOSE' }),
     toggle: () => dispatch({ type: 'TOGGLE' }),
+    runShortcut,
     pushScope: (scopeId, args) =>
       dispatch({ type: 'PUSH_SCOPE', scopeId, pendingArgs: args }),
     popScope: () => dispatch({ type: 'POP_SCOPE' }),

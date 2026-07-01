@@ -149,6 +149,30 @@ describe('mutateAllPagesAndSite — basic happy path', () => {
     const matchingPage = pages.find((p) => p.id === returnedId)
     expect(matchingPage).toBeDefined()
   })
+
+  it('addScripts installs imported runtime dependencies in the same undoable mutation', () => {
+    useEditorStore.getState().createSite('Test')
+
+    useEditorStore.getState().mutateAllPagesAndSite((_site, helpers) => {
+      helpers.addScripts([{
+        path: 'motion.js',
+        content: `import { Motion } from '@motion.page/sdk';`,
+        format: 'module',
+        pageSources: ['index.html'],
+        priority: 100,
+        dependencies: [{ name: '@motion.page/sdk', version: '1.2.4' }],
+      }])
+      return true
+    })
+
+    expect(useEditorStore.getState().packageJson.dependencies['@motion.page/sdk']).toBe('1.2.4')
+    expect(useEditorStore.getState().site?.packageJson.dependencies['@motion.page/sdk']).toBe('1.2.4')
+
+    useEditorStore.getState().undo()
+
+    expect(useEditorStore.getState().packageJson.dependencies['@motion.page/sdk']).toBeUndefined()
+    expect(useEditorStore.getState().site?.packageJson.dependencies['@motion.page/sdk']).toBeUndefined()
+  })
 })
 
 // ---------------------------------------------------------------------------

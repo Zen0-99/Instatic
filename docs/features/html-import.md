@@ -142,7 +142,7 @@ Callers splice the fragment into the page tree via `insertImportedNodes(parentId
 | `style="…"` attributes | Declarations harvested onto `node.inlineStyles`; the attribute is removed |
 | HTML comments and processing instructions | Stripped silently — no count |
 
-The AI agent should not use stripped constructs for behavior. If an edit needs JavaScript, it writes a real runtime script with `write_code_asset({ type: "script", ... })` and verifies targeting with `inspect_code_runtime` instead of embedding `<script>` or `onclick` in an HTML import.
+The AI agent should not use stripped constructs for behavior. If an edit needs JavaScript, it writes a real runtime script with `write_code_asset({ type: "script", ... })` and verifies targeting with `inspect_code_runtime` instead of embedding `<script>` or `onclick` in an HTML import. Module scripts import npm packages with bare specifiers and declare them in the same `write_code_asset` call's `dependencies` map.
 
 After insert, `ImportHtmlModal` builds a toast body from the added-selector count plus the non-zero stripped counts, e.g. `"3 CSS selectors, stripped 2 <script>"`. If nothing notable happened, the toast shows only the node count.
 

@@ -14,6 +14,7 @@ import { ContextMenu, ContextMenuItem, ContextMenuSeparator } from '@ui/componen
 import { BulletlistSolidIcon } from 'pixel-art-icons/icons/bulletlist-solid'
 import { PlusIcon } from 'pixel-art-icons/icons/plus'
 import { TrashSolidIcon } from 'pixel-art-icons/icons/trash-solid'
+import { formatRelativeTime } from './relativeTime'
 import styles from './AgentPanel.module.css'
 
 export function ConversationHistory() {
@@ -92,7 +93,7 @@ export function ConversationHistory() {
                   <span className={styles.historyItemTitle}>{conv.title}</span>
                   <span className={styles.historyItemMeta}>
                     <span className={styles.historyItemTime}>
-                      {formatRelativeTime(conv.updatedAt)}
+                      {formatRelativeTime(Date.parse(conv.updatedAt))}
                     </span>
                     {/* Span (not a native button) so it doesn't nest inside the
                         ContextMenuItem's Button — nested interactive
@@ -125,17 +126,4 @@ export function ConversationHistory() {
       )}
     </>
   )
-}
-
-function formatRelativeTime(iso: string): string {
-  const ms = Date.now() - Date.parse(iso)
-  if (Number.isNaN(ms)) return ''
-  const minutes = Math.floor(ms / 60000)
-  if (minutes < 1) return 'now'
-  if (minutes < 60) return `${minutes}m`
-  const hours = Math.floor(minutes / 60)
-  if (hours < 24) return `${hours}h`
-  const days = Math.floor(hours / 24)
-  if (days < 7) return `${days}d`
-  return new Date(iso).toLocaleDateString()
 }

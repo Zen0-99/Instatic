@@ -9,12 +9,12 @@ The static-site pipeline has two parts: a pure analysis function (`buildImportPl
 ## TL;DR
 
 - Entry: global admin-shell modal, opened from Spotlight or workspace actions. Drop files, a folder, a static `.zip`, or a CMS-exported `.zip` bundle. Static files and CMS bundles both use the four-stage modal (Drop → Review → Conflicts → Import, with completion shown inside the Import stage); Conflicts is skipped when there is nothing to resolve.
-- `buildImportPlan({ fileMap, currentSite, options })` — pure, synchronous — produces an `ImportPlan` with pages, style rules, kept stylesheet files, media, color tokens, custom fonts, Google font install requests, font tokens, and scripts.
+- `buildImportPlan({ fileMap, currentSite, options })` — pure, synchronous — produces an `ImportPlan` with pages, style rules, kept stylesheet files, media, color tokens, custom fonts, Google font install requests, font tokens, scripts, and script npm dependencies inferred from known ESM CDNs.
 - **Per-stylesheet import modes:** each top-level linked stylesheet either converts to editable style rules (default) or imports verbatim as a page-scoped `SiteFile` stylesheet (`options.stylesheetModes`, picked in the Review step). There are no generated scope classes — page isolation comes from the kept file's runtime scope.
 - `commitImportPlan(plan, adapter)` — uploads assets, then wraps all store writes in a single `adapter.commit` call → one Cmd+Z reverts the whole import.
 - Static imports load the current CMS draft into the editor store on demand when launched outside `/admin/site`; if no draft exists, the modal creates an empty site before analysis.
 - Conflict resolution: rename with a numeric suffix (default), overwrite, skip, or custom-rename — per page slug, per class name, per design token (colour / font CSS variable), and per divergent cross-stylesheet class definition, with category-level bulk actions. Token renames rewrite `var(--x)` references so imports stay faithful.
-- What imports: pages, linked CSS plus unconditional local CSS `@import` graphs, `kind:'class'` and `kind:'ambient'` style rules, stylesheets kept as page-scoped files, `@keyframes`, uploadable media/font files, root CSS color tokens, root CSS font tokens, `@font-face` families, known external font stylesheet imports, safe extra HTML attributes on base modules, body-level classes/attributes/style metadata, bare DOM text nodes in mixed content, and executable HTML scripts as page-scoped runtime scripts.
+- What imports: pages, linked CSS plus unconditional local CSS `@import` graphs, `kind:'class'` and `kind:'ambient'` style rules, stylesheets kept as page-scoped files, `@keyframes`, uploadable media/font files, root CSS color tokens, root CSS font tokens, `@font-face` families, known external font stylesheet imports, safe extra HTML attributes on base modules, body-level classes/attributes/style metadata, bare DOM text nodes in mixed content, and executable HTML scripts as page-scoped runtime scripts. Module-script imports from known npm CDNs are rewritten to bare package imports and added to the site dependency manifest.
 - CMS bundle import preserves selected exported tables, rows, optional site shell, media, folders, and redirects using the same merge strategies as site transfer (`replace`, `merge-add`, `merge-overwrite`).
 - HTML forms import through the shared HTML importer as first-class form primitives (`base.form`, controls, labels, submit buttons), not as custom containers.
 - What cannot be modeled: `@layer`, conditional local CSS `@import`, and arbitrary external `@import` — surfaced as warnings when the CSS engine exposes them, never silently dropped.
@@ -35,6 +35,7 @@ src/core/siteImport/
 ├── colorTokens.ts       — extract root custom-property color tokens from :root/html/body rules
 ├── fontTokens.ts        — extract root --font-* custom properties as ImportFontToken[] from :root/html/body rules
 ├── fontImports.ts       — resolve trusted Google CSS2 @import rules into installed-font requests
+├── scriptDependencies.ts — rewrite known npm ESM CDN imports in module scripts into bare package imports + dependency requests
 ├── cssImports.ts        — expand unconditional local CSS @import graphs while preserving each source path
 ├── classCascades.ts     — cross-sheet class semantics: detect divergent class definitions as explicit conflicts; apply rename / keep-first / overwrite; enforce one bindable class rule per name
 ├── mimeTypes.ts         — extension → MIME fallback for FileMap entries that carry no MIME type (e.g. ZIP)
@@ -175,6 +176,19 @@ interface ImportPlan {
 
 All URL-shaped values inside `pages[].nodeFragment` props, imported `htmlAttributes` bags, style rule `styles`/`contextStyles`, and supported raw style-rule blocks such as `@keyframes` are normalised to FileMap keys before the plan is returned — `applyAssetRewrites` does exact-string replacement after upload.
 
+`ImportScript` entries carry optional npm dependency requests when module-script CDN imports were converted:
+
+```ts
+interface ImportScript {
+  path: string
+  content: string
+  format: 'classic' | 'module'
+  pageSources: string[]
+  priority: number
+  dependencies?: { name: string; version: string }[]
+}
+```
+
 ---
 
 ## What each category imports
@@ -188,7 +202,7 @@ All URL-shaped values inside `pages[].nodeFragment` props, imported `htmlAttribu
 | **Color tokens** | CSS custom properties on `:root` / `html` / `body` that look like colours | `extractRootColorTokens` pulls them into `ImportColorToken[]`; they become framework palette tokens. The framework parses hex, rgb/rgba, and hsl/hsla into channels (deriving shades/tints/transparent steps); any other authored value (oklch(), color-mix(), …) still emits its base `--<slug>` verbatim so `var(--x)` references never break. A `--<slug>` that collides with an existing colour token surfaces as a `TokenConflict` (rename / skip / overwrite) |
 | **Fonts** | Self-hosted `@font-face` families with at least one bundled file, plus trusted Google CSS2 imports | `buildFontFamilies` in `assetPlan.ts` picks the best bundled format (woff2 → woff → ttf → otf); `extractGoogleFontImports` turns Google CSS2 `@import` rules into install requests. Commit uploads custom files via `tx.addFonts`, installs Google families through the CMS Google-font installer, then merges those returned `FontEntry` records via `tx.addInstalledFonts` |
 | **Font tokens** | Root `--font-*` variables with font-family stacks | `extractRootFontTokens` pulls them into `ImportFontToken[]`; committed via `tx.addFontTokens` after fonts so matching imported families can be assigned. A `--font-*` that collides with an existing font token surfaces as a `TokenConflict` (rename / skip / overwrite) |
-| **Scripts** | Executable inline scripts and JS files linked by imported HTML | Preserved in source order and committed via `tx.addScripts` with page scope from the source HTML. Classic scripts remain plain `<script>` assets and bypass bundling; `type="module"` scripts keep module semantics. Non-executable script data such as `application/json`, import maps, and templates is skipped. |
+| **Scripts** | Executable inline scripts and JS files linked by imported HTML | Preserved in source order and committed via `tx.addScripts` with page scope from the source HTML. Classic scripts remain plain `<script>` assets and bypass bundling; `type="module"` scripts keep module semantics. Module imports from known npm CDNs (`esm.sh`, `esm.run`, `unpkg`, jsDelivr npm URLs) are rewritten to bare package specifiers and recorded as runtime dependencies, so `https://esm.sh/@motion.page/sdk@1.2.4` becomes `@motion.page/sdk` plus `@motion.page/sdk: 1.2.4` in `packageJson.dependencies`. Non-executable script data such as `application/json`, import maps, and templates is skipped. |
 | **Stylesheets (kept)** | Top-level linked sheets the user opted into `mode: 'file'` | Flattened `@import` graph, Google imports stripped, `url()` normalised; committed via `tx.addStylesheets` as a `SiteFile` (`type: 'style'`) + `site.runtime.styles` entry scoped to the linking pages. Editable afterwards in the Site panel's Styles section and the code editor. |
 
 ---

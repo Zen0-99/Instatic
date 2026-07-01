@@ -22,12 +22,14 @@
  * - prefers-reduced-motion: CSS transitions are disabled for users who opt out
  */
 
-import { lazy, Suspense, useEffect, useRef } from 'react'
+import { lazy, Suspense, useContext, useEffect, useEffectEvent, useRef } from 'react'
 import { useEditorStore, selectActiveCanvasPage, selectRightSidebarExpanded } from '@site/store/store'
 import type { Breakpoint } from '@core/page-tree'
 import { registry } from '@core/module-engine'
 import { getNodeDisplayName } from '@core/page-tree'
 import { ErrorBoundary } from '@ui/components/ErrorBoundary'
+import { SpotlightContext } from '@admin/spotlight/spotlightContext'
+import { getKeybindingForCommand } from '@admin/spotlight/keybindings'
 import { useCanvas } from '@site/hooks/useCanvas'
 import { useEditorPermissions } from '@site/editorPermissionsContext'
 import { CanvasTransformLayer } from './CanvasTransformLayer'
@@ -78,6 +80,7 @@ interface CanvasRootProps {
 export function CanvasRoot({ editable = true }: CanvasRootProps) {
   const transformLayerRef = useRef<HTMLDivElement>(null)
   const canvasRef = useRef<HTMLDivElement>(null)
+  const spotlight = useContext(SpotlightContext)
 
   // Store subscriptions
   const canvasPage = useEditorStore(selectActiveCanvasPage)
@@ -282,7 +285,7 @@ export function CanvasRoot({ editable = true }: CanvasRootProps) {
     // `position: fixed` — it needs editor-document coordinates, which
     // `clientPointToEditorDoc` produces by adding the iframe's outer rect
     // (scaled by the canvas zoom).
-    const point = clientPointToEditorDoc(e.nativeEvent)
+    const point = clientPointToEditorDoc(e.nativeEvent ?? e)
     contextMenu.open({ x: point.x, y: point.y, nodeId })
   }
 
@@ -330,7 +333,53 @@ export function CanvasRoot({ editable = true }: CanvasRootProps) {
     cutNode,
     cutNodes,
     pasteNode,
+    runShortcut: spotlight?.runShortcut,
   })
+
+  const requestDeleteSelectionFromShortcut = useEffectEvent((
+    currentSelectedNodeId: string,
+    currentIds: readonly string[],
+  ) => {
+    if (currentIds.length > 1) {
+      deleteNodes([...currentIds])
+      clearSelection()
+    } else {
+      requestDeleteNode(currentSelectedNodeId)
+    }
+  })
+
+  useEffect(() => {
+    if (isLive || !editable) return
+    const deleteBinding = getKeybindingForCommand('layers.delete')
+    if (!deleteBinding) return
+
+    const isCanvasEvent = (event: KeyboardEvent) => {
+      const target = event.target
+      if (target instanceof Element && canvasRef.current?.contains(target)) return true
+      const activeElement = document.activeElement
+      return activeElement instanceof Element && canvasRef.current?.contains(activeElement)
+    }
+
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.defaultPrevented) return
+      if (useEditorStore.getState().activeInlineEdit) return
+      if (!deleteBinding.match(event)) return
+      if (!isCanvasEvent(event)) return
+
+      const state = useEditorStore.getState()
+      const currentIds = state.selectedNodeIds
+      const currentSelectedNodeId = state.selectedNodeId
+      if (!currentSelectedNodeId) return
+
+      event.preventDefault()
+      event.stopPropagation()
+
+      requestDeleteSelectionFromShortcut(currentSelectedNodeId, currentIds)
+    }
+
+    document.addEventListener('keydown', onKeyDown)
+    return () => document.removeEventListener('keydown', onKeyDown)
+  }, [editable, isLive])
 
   // ─── Canvas background click → deselect ───────────────────────────────────
 
@@ -371,6 +420,7 @@ export function CanvasRoot({ editable = true }: CanvasRootProps) {
           aria-label="Canvas — infinite editing surface"
           tabIndex={0}
           data-testid="canvas-root"
+          data-instatic-canvas-root="true"
           data-canvas-state={canvasPage ? 'canvas-ready' : 'canvas-empty'}
           data-canvas-view={canvasView}
           data-vc-mode={activeDocument?.kind === 'visualComponent' ? 'true' : undefined}

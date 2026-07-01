@@ -86,6 +86,7 @@ export type {
   // colour tokens + scripts
   ImportColorToken,
   ImportFontToken,
+  ImportScriptDependency,
   ImportScript,
 } from './types'
 

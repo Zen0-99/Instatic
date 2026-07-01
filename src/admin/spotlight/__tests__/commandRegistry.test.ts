@@ -202,6 +202,7 @@ describe('filterCommands — combined gates', () => {
         canUndo: false,
         canRedo: false,
         activeBreakpointId: 'desktop',
+        activeInlineEdit: false,
       },
     }
     expect(filterCommands([cmd], ctxWithEditor)).toEqual([cmd])

@@ -3,6 +3,12 @@ import { useRef } from 'react'
 import { act, cleanup as cleanupRender, fireEvent, render, screen } from '@testing-library/react'
 import { useEditorStore } from '@site/store/store'
 import { RESET_ZOOM } from '@site/canvas/math'
+import {
+  isCanvasSpacePanActive,
+  panDeltaFromWheel,
+  setCanvasSpacePanActive,
+  shouldStartCanvasPointerPan,
+} from '@site/canvas/canvasPanInput'
 import { useCanvas } from '@site/hooks/useCanvas'
 import { installAdminZoomGuard } from '@admin/shared/AdminZoomGuard'
 
@@ -50,6 +56,27 @@ afterEach(() => {
 })
 
 describe('useCanvas wheel pan sync', () => {
+  it('maps shift-wheel mouse scrolling to horizontal canvas pan', async () => {
+    render(<TestCanvas />)
+
+    const root = screen.getByTestId('test-canvas-root')
+    const layer = screen.getByTestId('test-transform-layer')
+
+    dispatchWheel(root, {
+      shiftKey: true,
+      deltaX: 0,
+      deltaY: 120,
+      clientX: 10,
+      clientY: 10,
+    })
+
+    await act(async () => {
+      await nextAnimationFrame()
+    })
+
+    expect(layer.style.transform).toBe('translate(-120px, 0px) scale(1)')
+  })
+
   it('does not snap back to stale store pan when hover changes before the debounced pan commit', async () => {
     render(<TestCanvas />)
 
@@ -96,5 +123,30 @@ describe('useCanvas wheel pan sync', () => {
 
     expect(layer.style.transform).toContain('scale(1.')
     expect(layer.style.transform).not.toBe('translate(0px, 0px) scale(1)')
+  })
+})
+
+describe('canvas mouse pan input policy', () => {
+  it('tracks parent and iframe space-pan state independently for iframe pointer relays', () => {
+    setCanvasSpacePanActive(document, 'parentDocument', true)
+    expect(isCanvasSpacePanActive(document)).toBe(true)
+
+    setCanvasSpacePanActive(document, 'iframe', true)
+    setCanvasSpacePanActive(document, 'parentDocument', false)
+    expect(isCanvasSpacePanActive(document)).toBe(true)
+
+    setCanvasSpacePanActive(document, 'iframe', false)
+    expect(isCanvasSpacePanActive(document)).toBe(false)
+  })
+
+  it('uses shift-wheel for sideways mouse scrolling', () => {
+    expect(panDeltaFromWheel({ shiftKey: true, deltaX: 0, deltaY: 120 })).toEqual({ dx: -120, dy: 0 })
+    expect(panDeltaFromWheel({ shiftKey: false, deltaX: 0, deltaY: 120 })).toEqual({ dx: 0, dy: -120 })
+  })
+
+  it('does not use middle-button dragging as a canvas pan gesture', () => {
+    expect(shouldStartCanvasPointerPan({ button: 1 }, { spaceHeld: false })).toBe(false)
+    expect(shouldStartCanvasPointerPan({ button: 1 }, { spaceHeld: true })).toBe(false)
+    expect(shouldStartCanvasPointerPan({ button: 0 }, { spaceHeld: true })).toBe(true)
   })
 })

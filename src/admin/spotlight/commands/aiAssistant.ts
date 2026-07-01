@@ -22,9 +22,9 @@ export function getAiAssistantCommands(): Command[] {
         ctx.closeSpotlight()
         try {
           const { useEditorStore } = await import('@site/store/store')
-          useEditorStore.getState().openAgent()
+          useEditorStore.getState().setLeftSidebarPanel('agent')
         } catch (err) {
-          console.error('[spotlight] openAgent failed:', err)
+          console.error('[spotlight] open AI assistant panel failed:', err)
         }
       },
     },

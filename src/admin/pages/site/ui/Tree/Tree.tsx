@@ -1,9 +1,8 @@
-import type { ReactNode, Ref } from 'react'
+import type { HTMLAttributes, ReactNode, Ref } from 'react'
 
-interface TreeContainerProps {
+interface TreeContainerProps extends HTMLAttributes<HTMLDivElement> {
   ariaLabel: string
   testId?: string
-  className?: string
   /** Forward a ref to the underlying div, e.g. for scroll-to-selected. */
   containerRef?: Ref<HTMLDivElement>
   children: ReactNode
@@ -15,6 +14,7 @@ export function TreeContainer({
   className,
   containerRef,
   children,
+  ...props
 }: TreeContainerProps) {
   return (
     <div
@@ -23,6 +23,7 @@ export function TreeContainer({
       aria-label={ariaLabel}
       data-testid={testId}
       className={className}
+      {...props}
     >
       {children}
     </div>

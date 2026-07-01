@@ -153,6 +153,12 @@ export interface AgentToolCall {
   params: Record<string, unknown>
   result: AiToolOutput | null
   status: 'pending' | 'success' | 'error'
+  /**
+   * Session-only preview image captured by a browser tool (e.g. the
+   * `render_snapshot` PNG). Held in memory so the panel can show what the
+   * agent looked at; never persisted — it rehydrates empty after a reload.
+   */
+  screenshotDataUrl?: string
 }
 
 /**

@@ -19,6 +19,7 @@ import {
   normalizeSiteRuntimeConfig,
   normalizeStyleRuntimeConfig,
 } from '@core/site-runtime'
+import { isSafePackageName } from '@core/site-dependencies/packageNames'
 import type { EditorStore } from '@site/store/types'
 import { activeRenderPage } from './documentTools'
 import { getAgentStoreApi } from './storeRef'
@@ -137,6 +138,26 @@ function setRuntimeForCodeAsset(
   store.setStyleRuntimeConfig(file.id, next)
 }
 
+function normalizeRequestedRuntimeDependencies(
+  input: WriteCodeAssetInput,
+): { ok: true; dependencies: Record<string, string> } | { ok: false; error: string } {
+  const entries = Object.entries(input.dependencies ?? {})
+  if (entries.length === 0) return { ok: true, dependencies: {} }
+  if (input.type !== 'script') {
+    return { ok: false, error: 'Runtime dependencies can only be declared for script code assets.' }
+  }
+
+  const dependencies: Record<string, string> = {}
+  for (const [rawName, rawVersion] of entries) {
+    const name = rawName.trim()
+    if (!isSafePackageName(name)) {
+      return { ok: false, error: `Invalid npm package name: ${rawName}` }
+    }
+    dependencies[name] = rawVersion.trim() || '*'
+  }
+  return { ok: true, dependencies }
+}
+
 function countOccurrences(content: string, search: string): number {
   let count = 0
   let index = content.indexOf(search)
@@ -234,6 +255,8 @@ export async function runWriteCodeAsset(input: WriteCodeAssetInput): Promise<AiT
 
   const path = normalizeCodeAssetPath(input.path)
   if (!path) return aiToolError(`Invalid code asset path: ${input.path}`)
+  const requestedDependencies = normalizeRequestedRuntimeDependencies(input)
+  if (!requestedDependencies.ok) return aiToolError(requestedDependencies.error)
 
   const existing = site.files.find((file) => file.path === path)
   let fileId: string
@@ -260,6 +283,10 @@ export async function runWriteCodeAsset(input: WriteCodeAssetInput): Promise<AiT
   }
   setRuntimeForCodeAsset(afterContentStore, file, input.runtime)
 
+  for (const [name, version] of Object.entries(requestedDependencies.dependencies)) {
+    getStoreState().setDependency(name, version, false)
+  }
+
   const afterRuntimeStore = getStoreState()
   const finalFile = afterRuntimeStore.site?.files.find((candidate) => candidate.id === fileId)
   if (!finalFile || !isCodeAssetFile(finalFile)) {
@@ -268,6 +295,7 @@ export async function runWriteCodeAsset(input: WriteCodeAssetInput): Promise<AiT
   return aiToolOk({
     ...(await describeCodeAsset(afterRuntimeStore, finalFile)),
     action,
+    dependencies: requestedDependencies.dependencies,
   })
 }
 

@@ -28,6 +28,9 @@ import {
   appendMessage,
   listMessagesForConversation,
   readConversationForUser,
+  updateConversationForUser,
+  deriveConversationTitle,
+  DEFAULT_CONVERSATION_TITLE,
 } from '../conversations/store'
 import { buildMessageHistory } from '../conversations/history'
 import {
@@ -153,6 +156,17 @@ async function handleAiChat(
     content: [{ kind: 'text', text: prompt }],
   })
   console.log(`[ai/chat] User message persisted`)
+
+  // The first prompt names the conversation: replace the placeholder title
+  // with an excerpt of what the user asked for. Only fires while the title is
+  // still the default, so a user-renamed chat is never overwritten.
+  if (conversation.title === DEFAULT_CONVERSATION_TITLE) {
+    const derivedTitle = deriveConversationTitle(prompt)
+    if (derivedTitle) {
+      await updateConversationForUser(db, user.id, conversation.id, { title: derivedTitle })
+        .catch((err) => { console.error('[ai/chat] auto-title failed:', err) })
+    }
+  }
 
   const existingMessages = await listMessagesForConversation(db, conversation.id)
   const messages = buildMessageHistory(existingMessages)

@@ -45,11 +45,16 @@ export function getLayersCommands(): Command[] {
       priorityBoost: 1.1,
       run: async (ctx) => {
         ctx.closeSpotlight()
-        const nodeId = ctx.editor?.selectedNodeIds[ctx.editor.selectedNodeIds.length - 1]
-        if (!nodeId) return
+        const ids = ctx.editor?.selectedNodeIds ?? []
+        if (ids.length === 0) return
         try {
           const { useEditorStore } = await import('@site/store/store')
-          useEditorStore.getState().duplicateNode(nodeId)
+          const store = useEditorStore.getState()
+          if (ids.length === 1) {
+            store.duplicateNode(ids[0]!)
+          } else {
+            store.duplicateNodes([...ids])
+          }
         } catch (err) {
           console.error('[spotlight] duplicateNode failed:', err)
         }

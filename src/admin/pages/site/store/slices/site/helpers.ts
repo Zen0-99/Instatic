@@ -10,7 +10,6 @@
 
 import { nanoid } from 'nanoid'
 import type { StoreApi } from 'zustand'
-import type { FrameworkColorToken } from '@core/framework-schema'
 import type { NodeTree, PageNode, StyleRule, SiteDocument } from '@core/page-tree'
 import { addPage, createNode, reconcileSiteExplorerInPlace, reindexNodeParents } from '@core/page-tree'
 import type { VisualComponent } from '@core/visualComponents'
@@ -19,17 +18,14 @@ import { collectSlotOutletNames } from '@core/visualComponents'
 import { create } from 'mutative'
 import type { Draft, Patches } from 'mutative'
 import type { ImportFragment } from '@core/htmlImport'
-import type {
-  NewStyleRule,
-  ImportColorToken,
-} from '@core/siteImport'
-import { normalizeFrameworkColorSlug } from '@core/framework'
-import { addImportedScripts, addImportedStylesheets } from './importedSiteFiles'
+import type { NewStyleRule } from '@core/siteImport'
+import { addImportedScriptDependencies, addImportedScripts, addImportedStylesheets } from './importedSiteFiles'
 import { collectDirtyFromSitePatches, mergeDirtyMarks } from './dirtyTracking'
 import type { EditorStore } from '@site/store/types'
 import { MAX_HISTORY } from './defaults'
 import { reconcileFrameworkClasses } from './framework/reconcile'
 import { indexStyleRulesByName, linkImportedClassNames } from './importLinking'
+import { addImportedColorTokens, overwriteImportedColorTokens } from './importedColorTokens'
 import { addImportedFonts, addImportedFontTokens, addInstalledFontEntries, overwriteImportedFontTokens } from './importedFonts'
 import type { HistoryEntry, SiteMutationResult, SiteSliceHelpers, SiteSliceRecipe } from './types'
 import type { SiteImportTransaction } from '@core/siteImport'
@@ -584,8 +580,15 @@ export function buildSiteHelpers(
         },
 
         addScripts(scripts): { id: string; path: string }[] {
+          const dependenciesChanged = addImportedScriptDependencies(site, scripts)
+          if (dependenciesChanged) {
+            draft.packageJson = {
+              dependencies: { ...site.packageJson.dependencies },
+              devDependencies: { ...site.packageJson.devDependencies },
+            }
+          }
           const committed = addImportedScripts(site, draft.siteRuntime, scripts)
-          if (committed.length > 0) didMutate = true
+          if (committed.length > 0 || dependenciesChanged) didMutate = true
           return committed
         },
 
@@ -615,86 +618,3 @@ export function buildSiteHelpers(
     mutateAllPagesAndSite,
   }
 }
-
-/**
- * Merge imported colour tokens into `site.settings.framework.colors` as PLAIN
- * BASE tokens — each emits only `--<slug>` (no shades/tints/transparent variants
- * and no `bg-/text-/border-` utility classes), so the palette is a faithful 1:1
- * of the source `:root` and every imported `var(--<slug>)` keeps resolving.
- *
- * A slug already present in the framework (case/format-normalised) is skipped:
- * the existing token wins, mirroring the class-conflict "first wins" rule.
- *
- * @returns The committed `{ slug, value }` for each newly-added token.
- */
-function addImportedColorTokens(
-  site: Draft<SiteDocument>,
-  colors: ImportColorToken[],
-): { slug: string; value: string }[] {
-  if (colors.length === 0) return []
-
-  // Ensure the framework colours container exists (enabling the framework).
-  site.settings.framework ??= { colors: { tokens: [] } }
-  site.settings.framework.colors ??= { tokens: [] }
-  const tokens = site.settings.framework.colors.tokens
-
-  const existingSlugs = new Set(tokens.map((t) => normalizeFrameworkColorSlug(t.slug)))
-  let maxOrder = tokens.reduce((m, t) => Math.max(m, t.order ?? 0), -1)
-  const committed: { slug: string; value: string }[] = []
-
-  for (const { slug: rawSlug, value } of colors) {
-    const slug = normalizeFrameworkColorSlug(rawSlug)
-    if (existingSlugs.has(slug)) continue
-    existingSlugs.add(slug)
-    const now = Date.now()
-    const token: FrameworkColorToken = {
-      id: nanoid(),
-      category: '',
-      slug,
-      lightValue: value,
-      darkValue: '',
-      darkModeEnabled: false,
-      generateUtilities: { text: false, background: false, border: false, fill: false },
-      generateTransparent: false,
-      generateShades: { enabled: false, count: 0 },
-      generateTints: { enabled: false, count: 0 },
-      order: (maxOrder += 1),
-      createdAt: now,
-      updatedAt: now,
-    }
-    tokens.push(token)
-    committed.push({ slug, value })
-  }
-
-  return committed
-}
-
-/**
- * Overwrite existing framework colour tokens in place (import conflict:
- * overwrite). The existing token's id, slug, and generation flags are retained;
- * only its `lightValue` is replaced, so `var(--<slug>)` references on both the
- * existing and imported sides keep resolving to the new colour.
- *
- * @returns The `{ slug, value }` for each overwritten token.
- */
-function overwriteImportedColorTokens(
-  site: Draft<SiteDocument>,
-  items: { existingTokenId: string; value: string }[],
-): { slug: string; value: string }[] {
-  if (items.length === 0) return []
-
-  const tokens = site.settings.framework?.colors?.tokens
-  if (!tokens || tokens.length === 0) return []
-
-  const committed: { slug: string; value: string }[] = []
-  for (const { existingTokenId, value } of items) {
-    const existing = tokens.find((t) => t.id === existingTokenId)
-    if (!existing) continue
-    existing.lightValue = value
-    existing.updatedAt = Date.now()
-    committed.push({ slug: existing.slug, value })
-  }
-
-  return committed
-}
-

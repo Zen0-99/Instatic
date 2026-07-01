@@ -10,6 +10,7 @@ export interface SpotlightControls {
   open: () => void
   close: () => void
   toggle: () => void
+  runShortcut: (event: KeyboardEvent) => boolean
   pushScope: (scopeId: string, args?: Record<string, string>) => void
   popScope: () => void
 }
