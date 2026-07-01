@@ -30,7 +30,6 @@ export { renderMarkdownToHtml } from './markdown'
 // Store handle wiring.
 export { setAgentStoreApi } from './storeRef'
 
-
 // Shared message/wire/context types and network path constants.
 export * from './types'
 export * from './agentConfig'

@@ -666,3 +666,9 @@ export async function executeAgentTool(
     return aiToolError(message)
   }
 }
+
+if (import.meta.env.DEV) {
+  ;(window as any).__instaticAgent = {
+    executeTool: executeAgentTool,
+  }
+}

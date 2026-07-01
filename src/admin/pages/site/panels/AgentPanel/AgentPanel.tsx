@@ -21,7 +21,7 @@
  * @see Guideline #410 — 3 Self-Contained Independent Panels
  */
 
-import { useRef, useEffect, memo } from 'react'
+import { useRef, useEffect, useState, memo } from 'react'
 import { useAgentStore } from '@admin/ai/useAgentStore'
 import { useAsyncResource } from '@admin/lib/useAsyncResource'
 import { useAdminNavigate } from '@admin/lib/useAdminNavigate'
@@ -75,6 +75,8 @@ export function AgentPanel({ variant = 'floating' }: { variant?: PanelVariant })
   const clearAgentMessages = useAgentStore((s) => s.clearAgentMessages)
   const startNewAgentConversation = useAgentStore((s) => s.startNewAgentConversation)
   const loadScopeDefault = useAgentStore((s) => s.loadScopeDefault)
+  const cascadeRelay = useAgentStore((s) => s.agentCascadeRelay)
+  const toggleCascadeRelay = useAgentStore((s) => s.toggleCascadeRelay)
   const activeCredentialId = useAgentStore((s) => s.agentActiveCredentialId)
   const activeModelId = useAgentStore((s) => s.agentActiveModelId)
   const credentialsResource = useAsyncResource(
@@ -91,11 +93,14 @@ export function AgentPanel({ variant = 'floating' }: { variant?: PanelVariant })
   // Locking off `hasActiveProvider` (not a sticky error string) is what keeps
   // the composer usable the instant the user picks a model.
   const hasActiveProvider = Boolean(activeCredentialId && activeModelId)
-  const composerLocked = !hasActiveProvider
+  // When the Cascade relay toggle is ON, messages route through the local MCP
+  // server → Windsurf IDE Cascade, so no AI provider credential is needed.
+  const composerLocked = !cascadeRelay && !hasActiveProvider
   // Why the composer is locked, used for the empty-state + placeholder copy:
   //   'setup'       → no credentials exist at all → add one in AI settings.
   //   'chooseModel' → credentials exist but no scope default / pick yet →
   //                   choose a model below, or set a default in AI settings.
+  //   null + relay  → Cascade relay is active, composer is unlocked.
   // While credentials are still loading we keep messaging neutral (null) so
   // the panel doesn't flash a setup prompt before the default preload lands.
   const lockReason: 'setup' | 'chooseModel' | null = !composerLocked
@@ -235,6 +240,21 @@ export function AgentPanel({ variant = 'floating' }: { variant?: PanelVariant })
         >
           <EditSolidIcon size={14} />
         </Button>
+        {/* "IDE Cascade" relay toggle — routes chat through Windsurf Cascade
+            via the local MCP server instead of the native AI provider. */}
+        <Button
+          variant="ghost"
+          size="xs"
+          iconOnly
+          onClick={toggleCascadeRelay}
+          tooltip={cascadeRelay ? 'IDE Cascade ON — click to disable' : 'IDE Cascade — route through Windsurf'}
+          aria-label="Toggle IDE Cascade relay"
+          aria-pressed={cascadeRelay}
+          data-testid="agent-cascade-relay-toggle"
+          className={cascadeRelay ? styles.cascadeRelayActive : undefined}
+        >
+          <AiBoxSolidIcon size={14} />
+        </Button>
         {/* "Clear conversation" — shown when there are messages */}
         {messages.length > 0 && (
           <Button
@@ -274,11 +294,11 @@ export function AgentPanel({ variant = 'floating' }: { variant?: PanelVariant })
         className={styles.thread}
       >
         {messages.length === 0 ? (
-          <AgentEmptyState mode={lockReason ?? 'prompt'} />
+          <AgentEmptyState mode={cascadeRelay ? 'cascade' : (lockReason ?? 'prompt')} />
         ) : (
           <>
-            {lockReason && <AgentCredentialAlert mode={lockReason} />}
-            {messages.map((msg) => <MessageBubble key={msg.id} msg={msg} />)}
+            {lockReason && !cascadeRelay && <AgentCredentialAlert mode={lockReason} />}
+            {messages.map((msg) => <MessageBubble key={msg.id} msg={msg} isComplete={msg.isComplete} />)}
           </>
         )}
 
@@ -302,11 +322,13 @@ export function AgentPanel({ variant = 'floating' }: { variant?: PanelVariant })
           {!isStreaming && (
             <Textarea
               ref={inputRef}
-              placeholder={lockReason === 'setup'
-                ? 'Add AI credentials to start chatting'
-                : lockReason === 'chooseModel'
-                  ? 'Choose a model below to start'
-                  : 'Tell me what to build… (Enter to send)'}
+              placeholder={cascadeRelay
+                ? 'Message via Windsurf Cascade… (Enter to send)'
+                : lockReason === 'setup'
+                  ? 'Add AI credentials to start chatting'
+                  : lockReason === 'chooseModel'
+                    ? 'Choose a model below to start'
+                    : 'Tell me what to build… (Enter to send)'}
               aria-label="Message to AI assistant"
               rows={2}
               resize="none"
@@ -346,12 +368,14 @@ export function AgentPanel({ variant = 'floating' }: { variant?: PanelVariant })
                 variant="primary"
                 size="sm"
                 iconOnly
-                disabled={composerLocked}
+                disabled={composerLocked || isStreaming}
                 tooltip={lockReason === 'setup'
                   ? 'Add AI credentials first'
                   : lockReason === 'chooseModel'
                     ? 'Choose a model first'
-                    : 'Send'}
+                    : cascadeRelay
+                      ? 'Send to Cascade'
+                      : 'Send'}
                 aria-label="Send"
               >
                 <SendSolidIcon size={14} />
@@ -371,11 +395,12 @@ export function AgentPanel({ variant = 'floating' }: { variant?: PanelVariant })
 
 interface MessageBubbleProps {
   msg: AgentMessage
+  isComplete?: boolean
 }
 
 // Exception #2: React.memo re-render bailout on a hot, list-rendered component
 // (one per message in messages.map).
-const MessageBubble = memo(function MessageBubble({ msg }: MessageBubbleProps) {
+const MessageBubble = memo(function MessageBubble({ msg, isComplete }: MessageBubbleProps) {
   const isUser = msg.role === 'user'
 
   return (
@@ -398,6 +423,13 @@ const MessageBubble = memo(function MessageBubble({ msg }: MessageBubbleProps) {
             key={`text-${index}`}
             text={block.text}
             isUser={isUser}
+          />
+        ) : block.kind === 'thinking' ? (
+          <ThinkingBlock
+            key={`thinking-${index}`}
+            text={block.text}
+            isLast={index === msg.blocks.length - 1}
+            isComplete={isComplete}
           />
         ) : (
           <div key={block.toolCall.id} className={styles.toolCallsContainer}>
@@ -442,6 +474,67 @@ const MarkdownTextBubble = memo(function MarkdownTextBubble({
     />
   )
 })
+
+// ---------------------------------------------------------------------------
+// ThinkingBlock — collapsible reasoning/thinking section
+// ---------------------------------------------------------------------------
+
+function ThinkingBlock({ text, isLast, isComplete }: { text: string; isLast: boolean; isComplete?: boolean }) {
+  const [open, setOpen] = useState(false)
+  const startTimeRef = useRef<number>(Date.now())
+  const endTimeRef = useRef<number | null>(null)
+  const html = renderMarkdownToHtml(text)
+
+  // Compute end time synchronously when thinking finishes — more reliable than
+  // useEffect for catching the transition, especially when the stream closes
+  // or a new block is appended.
+  const hasFinished = !isLast || isComplete
+  if (hasFinished && endTimeRef.current === null) {
+    endTimeRef.current = Date.now()
+  }
+
+  const duration = endTimeRef.current !== null
+    ? Math.max(1, Math.round((endTimeRef.current - startTimeRef.current) / 1000))
+    : null
+
+  if (!html) return null
+
+  const isActive = !hasFinished && !open
+  const label = isActive
+    ? 'Thinking'
+    : duration !== null
+      ? `Thought for ${duration}s`
+      : 'Thinking'
+
+  return (
+    <div className={styles.thinkingBlock}>
+      <button
+        type="button"
+        className={cn(
+          styles.thinkingToggle,
+          isActive && styles.thinkingShimmer,
+        )}
+        onClick={() => setOpen((v) => !v)}
+        aria-expanded={open}
+      >
+        <span
+          className={cn(styles.thinkingIcon, open && styles.thinkingIconOpen)}
+          aria-hidden="true"
+        >
+          {'>'}
+        </span>
+        <span>{label}</span>
+      </button>
+      {open && (
+        <div
+          className={cn(styles.thinkingContent, styles.markdownBubble)}
+          // Safe: sanitised by DOMPurify via renderMarkdownToHtml.
+          dangerouslySetInnerHTML={{ __html: html }}
+        />
+      )}
+    </div>
+  )
+}
 
 // ---------------------------------------------------------------------------
 // ToolCallBadge
@@ -545,7 +638,21 @@ function formatActionLabel(actionType: string, params: unknown): string {
 
 type ComposerLockReason = 'setup' | 'chooseModel'
 
-function AgentEmptyState({ mode }: { mode: ComposerLockReason | 'prompt' }) {
+type EmptyStateMode = ComposerLockReason | 'prompt' | 'cascade'
+
+function AgentEmptyState({ mode }: { mode: EmptyStateMode }) {
+  if (mode === 'cascade') {
+    return (
+      <EmptyState
+        variant="centered"
+        size="large"
+        icon={<AiBoxSolidIcon size={28} color="var(--primary, var(--text))" />}
+        title="Connected to Windsurf Cascade"
+        description="Messages route directly to the Windsurf IDE via Connect-RPC. Cascade has access to all CMS editing tools through the registered MCP server — insertHtml, applyCss, addPage, publish, and more."
+      />
+    )
+  }
+
   if (mode === 'setup') {
     return (
       <EmptyState

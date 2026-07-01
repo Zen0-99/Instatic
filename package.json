@@ -18,6 +18,7 @@
   },
   "type": "module",
   "scripts": {
+    "mcp:relay": "bun run scripts/mcp/relay-daemon.ts",
     "dev": "bun run scripts/dev.ts",
     "dev:agent": "bun run dev:server",
     "dev:server": "bun --watch server/index.ts",

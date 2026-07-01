@@ -38,6 +38,8 @@ export interface AgentSlice {
   agentActiveModelId: string | null
   agentConversations: ConversationView[]
   agentContextTokens: number | null
+  agentCascadeRelay: boolean
+  agentCascadeModelId: string | null
 
   openAgent(): void
   closeAgent(): void
@@ -51,6 +53,8 @@ export interface AgentSlice {
   deleteAgentConversation(id: string): Promise<void>
   setAgentProvider(credentialId: string, modelId: string): Promise<void>
   loadScopeDefault(): Promise<void>
+  toggleCascadeRelay(): void
+  setCascadeModel(modelId: string): void
 }
 
 export type EditorStoreSet = Parameters<EditorStoreSliceCreator<AgentSlice>>[0]

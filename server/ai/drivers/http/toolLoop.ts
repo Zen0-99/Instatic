@@ -125,19 +125,34 @@ export async function* runToolLoop<TMessage>(
   let cacheCreationTokens = 0
   let costUsd: number | undefined
 
+  let turnNum = 0
   for (;;) {
-    if (req.signal.aborted) return
+    turnNum++
+    if (req.signal.aborted) {
+      console.log(`[ai/toolLoop] turn ${turnNum} aborted before request`)
+      return
+    }
 
-    let res: Response
+    const body = adapter.buildRequestBody(messages, req)
+    const bodyStr = JSON.stringify(body)
+
+    const authHeader = headers.Authorization ?? headers.authorization ?? 'none'
+    console.log(`[ai/toolLoop] turn ${turnNum} POST ${adapter.endpoint} auth=${typeof authHeader === 'string' ? authHeader.slice(0, 20) + '...' : 'missing'} body=${bodyStr.length} chars, messages=${(body as any).messages?.length ?? '?'}`)
+
+  let res: Response
     try {
       res = await fetch(adapter.endpoint, {
         method: 'POST',
         headers,
-        body: JSON.stringify(adapter.buildRequestBody(messages, req)),
+        body: bodyStr,
         signal: req.signal,
       })
+      console.log(`[ai/toolLoop] turn ${turnNum} response status=${res.status}`)
     } catch (err) {
-      if (isAbortError(err) || req.signal.aborted) return
+      if (isAbortError(err) || req.signal.aborted) {
+        console.log(`[ai/toolLoop] turn ${turnNum} fetch aborted`)
+        return
+      }
       const detail = err instanceof Error ? err.message : String(err)
       console.error(`[ai/${adapter.label.toLowerCase()}] request failed:`, err)
       yield { type: 'error', message: `${adapter.label} request failed: ${detail}` }
@@ -152,24 +167,37 @@ export async function* runToolLoop<TMessage>(
     }
 
     const translator = adapter.createTurnTranslator()
+    let frameCount = 0
     try {
       for await (const frame of parseSseStream(res)) {
+        frameCount++
         for (const event of translator.translate(frame)) {
           yield event
-          if (event.type === 'error') return
+          if (event.type === 'error') {
+            console.log(`[ai/toolLoop] turn ${turnNum} translator yielded error event`)
+            return
+          }
         }
       }
+      console.log(`[ai/toolLoop] turn ${turnNum} stream ended: ${frameCount} SSE frames`)
     } catch (err) {
-      if (isAbortError(err) || req.signal.aborted) return
+      if (isAbortError(err) || req.signal.aborted) {
+        console.log(`[ai/toolLoop] turn ${turnNum} stream aborted`)
+        return
+      }
       const detail = err instanceof Error ? err.message : String(err)
       console.error(`[ai/${adapter.label.toLowerCase()}] stream error:`, err)
       yield { type: 'error', message: `${adapter.label} stream error: ${detail}` }
       return
     }
 
-    if (req.signal.aborted) return
+    if (req.signal.aborted) {
+      console.log(`[ai/toolLoop] turn ${turnNum} aborted after stream`)
+      return
+    }
 
     const turn = translator.finish()
+    console.log(`[ai/toolLoop] turn ${turnNum} finished: stop=${turn.stop}, toolCalls=${turn.toolCalls.length}, usage=${turn.usage ? `${turn.usage.promptTokens}/${turn.usage.completionTokens}` : 'none'}`)
     if (turn.usage) {
       promptTokens += turn.usage.promptTokens
       completionTokens += turn.usage.completionTokens
@@ -189,6 +217,7 @@ export async function* runToolLoop<TMessage>(
     }
 
     if (turn.stop || turn.toolCalls.length === 0) {
+      console.log(`[ai/toolLoop] turn ${turnNum} break (no more tool calls)`)
       break
     }
 
@@ -202,9 +231,11 @@ export async function* runToolLoop<TMessage>(
     for (const call of turn.toolCalls) {
       const tool = toolsByName.get(call.name)
       const input = prepareToolInput(call, req)
+      console.log(`[ai/toolLoop] turn ${turnNum} executing tool=${call.name} id=${call.id}`)
       const output: AiToolOutput = tool
         ? await executeAiTool(tool, input, req.bridge, req.signal, req.toolContextBase)
         : { ok: false, error: `Unknown tool: ${call.name}` }
+      console.log(`[ai/toolLoop] turn ${turnNum} tool=${call.name} ok=${output.ok}${output.ok ? '' : ` error=${output.error}`}`)
       yield {
         type: 'toolResult',
         toolCallId: call.id,
@@ -213,15 +244,21 @@ export async function* runToolLoop<TMessage>(
         error: output.ok ? undefined : output.error ?? 'Tool call failed.',
       }
       results.push({ id: call.id, name: call.name, output })
-      if (req.signal.aborted) return
+      if (req.signal.aborted) {
+        console.log(`[ai/toolLoop] turn ${turnNum} aborted during tool execution`)
+        return
+      }
     }
 
     const msgIndex = messages.push(adapter.buildToolResultMessage(results)) - 1
     if (results.some(isHeavyResult)) {
       heavyMessages.push({ index: msgIndex, results })
       applyHeavyElision(messages, heavyMessages, adapter)
+      console.log(`[ai/toolLoop] turn ${turnNum} heavy elision applied: ${heavyMessages.length} tracked heavy messages`)
     }
   }
+
+  console.log(`[ai/toolLoop] loop finished after ${turnNum} turn(s). total usage=${promptTokens}/${completionTokens}`)
 
   yield {
     type: 'usage',

@@ -105,6 +105,7 @@ async function handleAiChat(
   const chatBody = await readValidatedBody(req, ChatRequestBodySchema)
   if (!chatBody) return badRequest('Invalid request body.')
   const { conversationId, prompt, snapshot } = chatBody
+  console.log(`[ai/chat] REQUEST scope=${scope} conversation=${conversationId} prompt="${prompt.slice(0, 80)}${prompt.length > 80 ? '...' : ''}"`)
 
   const conversation = await readConversationForUser(db, user.id, conversationId)
   if (!conversation) {
@@ -139,6 +140,7 @@ async function handleAiChat(
   }
 
   const driver = resolveDriver(credential.providerId)
+  console.log(`[ai/chat] Driver=${credential.providerId} model=${conversation.modelId} tools=${selectToolsForScope(scope, user.capabilities).length}`)
   // Capability-filtered toolset. Callers without `ai.tools.write` only see
   // read tools registered with the driver — the model has no way to
   // emit a write call. See B6 in the capabilities review.
@@ -150,11 +152,14 @@ async function handleAiChat(
     role: 'user',
     content: [{ kind: 'text', text: prompt }],
   })
+  console.log(`[ai/chat] User message persisted`)
 
   const existingMessages = await listMessagesForConversation(db, conversation.id)
   const messages = buildMessageHistory(existingMessages)
+  console.log(`[ai/chat] History loaded: ${messages.length} messages`)
 
   const systemPrompt = buildSystemPromptForScope(scope, snapshot)
+  console.log(`[ai/chat] System prompt built: ${systemPrompt.length} sections, first=${systemPrompt[0]?.slice(0, 60)}...`)
 
   // Capture totals reported by the persister so the audit row can hold
   // them when the stream completes (we read them off the conversation row
@@ -228,6 +233,7 @@ async function handleAiChat(
           (next) => { toolContextBase.snapshot = next },
         )
         destroyBridge = destroy
+        console.log(`[ai/chat] Bridge created: ${bridgeId}`)
         emit({ type: 'bridgeReady', bridgeId })
 
         const request: AiStreamRequest = {
@@ -248,7 +254,9 @@ async function handleAiChat(
           providerId: credential.providerId,
           modelId: conversation.modelId,
         })
+        console.log(`[ai/chat] Starting runChat...`)
         await runChat({ driver, request, persister, emit })
+        console.log(`[ai/chat] runChat completed`)
 
         // Best-effort: record that this credential was used.
         await touchCredentialLastUsed(db, credential.id).catch(() => { /* noop */ })
@@ -256,6 +264,7 @@ async function handleAiChat(
         const detail = err instanceof Error ? err.message : String(err)
         // Full Error preserves the stack trace in the operator's terminal.
         console.error('[ai/chat] stream failed:', err)
+        console.log(`[ai/chat] STREAM FAILED: ${detail}`)
         streamError = detail
         emit({ type: 'error', message: `AI chat failed: ${detail}` })
       } finally {
@@ -319,7 +328,7 @@ export function buildSystemPromptForScope(
     // snapshot (rather than crashing the stream) when it's malformed.
     const result = safeParseValue(SiteAgentSnapshotSchema, snapshot)
     if (!result.ok) {
-      console.error('[ai/chat] invalid site snapshot, using empty fallback:', result.errors)
+      console.error('[ai/chat] invalid site snapshot, using empty fallback:', (result as { errors: ReadonlyArray<{ path: string; message: string }> }).errors)
       return buildSiteSystemPrompt(emptySiteAgentSnapshot())
     }
     return buildSiteSystemPrompt(result.value)

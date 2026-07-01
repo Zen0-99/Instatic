@@ -87,10 +87,12 @@ export function createBridge(
   const bridgeId = nanoid()
   const entry: BridgeEntry = { pending: new Map(), emit, onSnapshot }
   activeBridges.set(bridgeId, entry)
+  console.log(`[ai/transport] bridge created: ${bridgeId}, timeout=${timeoutMs}ms`)
 
   const bridge: AiBrowserBridge = {
     callBrowser(toolName, input) {
       const requestId = nanoid()
+      console.log(`[ai/transport] bridge ${bridgeId} callBrowser: tool=${toolName} requestId=${requestId}`)
       return new Promise<AiToolOutput>((resolve, reject) => {
         // Settle (and remove) the pending wait on timeout or client disconnect
         // so a non-responding browser can never hang the SDK stream or leak the
@@ -127,6 +129,7 @@ export function createBridge(
   const destroy = () => {
     const live = activeBridges.get(bridgeId)
     if (!live) return
+    console.log(`[ai/transport] bridge destroy: ${bridgeId}, pending=${live.pending.size}`)
     if (live.pending.size > 0) {
       // Pending entries at stream-end mean the browser never POSTed a
       // tool-result for an in-flight tool call — diagnostic surface only,
@@ -160,9 +163,15 @@ export function resolveBridgeToolResult(
   snapshot?: unknown,
 ): boolean {
   const entry = activeBridges.get(bridgeId)
-  if (!entry) return false
+  if (!entry) {
+    console.log(`[ai/transport] resolveBridgeToolResult: bridge ${bridgeId} not found`)
+    return false
+  }
   const pending = entry.pending.get(requestId)
-  if (!pending) return false
+  if (!pending) {
+    console.log(`[ai/transport] resolveBridgeToolResult: requestId ${requestId} not found in bridge ${bridgeId}`)
+    return false
+  }
   entry.pending.delete(requestId)
   pending.cleanup()
   // Refresh the turn snapshot BEFORE resolving the waiter: the driver loop
@@ -170,6 +179,7 @@ export function resolveBridgeToolResult(
   // see post-mutation state. `undefined` means the browser sent no snapshot
   // (e.g. a read-only tool) — leave the existing one in place.
   if (snapshot !== undefined) entry.onSnapshot?.(snapshot)
+  console.log(`[ai/transport] resolveBridgeToolResult: bridge=${bridgeId} requestId=${requestId} ok=${result.ok}`)
   pending.resolve(result)
   return true
 }

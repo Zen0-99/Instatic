@@ -85,11 +85,23 @@ export async function handleSetupRoutes(req: Request, db: DbClient): Promise<Res
       })
       // Seed a starter homepage as a data_row in the 'pages' system table.
       const rootNode = createNode('base.body')
+      const boxNode = createNode('base.container')
+      const textNode = createNode('base.text', { text: 'Welcome to your new site!' })
+
+      rootNode.children = [boxNode.id]
+      boxNode.parentId = rootNode.id
+      boxNode.children = [textNode.id]
+      textNode.parentId = boxNode.id
+
       const homePage: Page = {
         id: nanoid(),
         title: 'Home',
         slug: 'index',
-        nodes: { [rootNode.id]: rootNode },
+        nodes: {
+          [rootNode.id]: rootNode,
+          [boxNode.id]: boxNode,
+          [textNode.id]: textNode,
+        },
         rootNodeId: rootNode.id,
       }
       await createDataRow(

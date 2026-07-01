@@ -288,6 +288,8 @@ function makeOllamaAdapter(baseUrl: string, apiKey: string | null): ProviderAdap
           },
         }))
       }
+      const flatMsgs = body.messages as unknown[]
+      console.log(`[ai/ollama] buildRequestBody: model=${req.modelId} messages=${flatMsgs.length} tools=${req.tools.length} systemPrompt=${req.systemPrompt.length} sections`)
       return body
     },
 
@@ -420,6 +422,7 @@ export class ChatCompletionsTurnTranslator implements TurnTranslator<ChatTurn> {
     // arguments to the UI — see plan §11).
     if (choice.finish_reason && this.toolsByIndex.size > 0 && !this.emitted) {
       this.emitted = true
+      console.log(`[ai/ollama] finish_reason=${choice.finish_reason}, emitting ${this.toolsByIndex.size} toolCall(s)`)
       for (const index of this.order) {
         const acc = this.toolsByIndex.get(index)!
         events.push({
@@ -453,6 +456,7 @@ export class ChatCompletionsTurnTranslator implements TurnTranslator<ChatTurn> {
         ? { role: 'assistant', content: this.text, tool_calls: chatToolCalls }
         : { role: 'assistant', content: this.text }
 
+    console.log(`[ai/ollama] finish: text=${this.text.length} chars, toolCalls=${toolCalls.length}, stop=${toolCalls.length === 0}`)
     return {
       stop: toolCalls.length === 0,
       toolCalls,

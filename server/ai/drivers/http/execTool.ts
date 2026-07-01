@@ -39,6 +39,7 @@ export async function executeAiTool(
     validated = parseValue(aiTool.inputSchema, rawInput)
   } catch (err) {
     const message = err instanceof Error ? err.message : 'Invalid tool input.'
+    console.log(`[ai/execTool] ${aiTool.name} validation failed: ${message}`)
     return { ok: false, error: message }
   }
 
@@ -46,8 +47,11 @@ export async function executeAiTool(
   // tool the caller can't use, but re-check before dispatching to either
   // the server handler or the browser bridge anyway.
   if (!toolAllowedForCapabilities(aiTool, toolContextBase.capabilities)) {
+    console.log(`[ai/execTool] ${aiTool.name} blocked by capabilities`)
     return { ok: false, error: `Tool ${aiTool.name} is not permitted for this user.` }
   }
+
+  console.log(`[ai/execTool] ${aiTool.name} dispatch=${aiTool.execution}`)
 
   if (aiTool.execution === 'server') {
     if (!aiTool.handler) {
@@ -56,18 +60,24 @@ export async function executeAiTool(
     try {
       const ctx: ToolContext = { ...toolContextBase, signal }
       const result = await aiTool.handler(validated, ctx)
-      return normaliseToolOutput(result)
+      const out = normaliseToolOutput(result)
+      console.log(`[ai/execTool] ${aiTool.name} server-handler ok=${out.ok}`)
+      return out
     } catch (err) {
       const message = err instanceof Error ? err.message : `Tool ${aiTool.name} failed.`
+      console.log(`[ai/execTool] ${aiTool.name} server-handler threw: ${message}`)
       return { ok: false, error: message }
     }
   }
 
   // Browser execution: forward to the bridge and wait for the POST-back.
   try {
-    return await bridge.callBrowser(aiTool.name, validated)
+    const out = await bridge.callBrowser(aiTool.name, validated)
+    console.log(`[ai/execTool] ${aiTool.name} browser-bridge ok=${out.ok}`)
+    return out
   } catch (err) {
     const message = err instanceof Error ? err.message : `Tool ${aiTool.name} failed.`
+    console.log(`[ai/execTool] ${aiTool.name} browser-bridge threw: ${message}`)
     return { ok: false, error: message }
   }
 }

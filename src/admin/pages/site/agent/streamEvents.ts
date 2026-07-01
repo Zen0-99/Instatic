@@ -113,11 +113,13 @@ export async function processStreamEvent(
     }
 
     case 'bridgeReady': {
+      console.log(`[streamEvents] bridgeReady: bridgeId=${event.bridgeId}`)
       bridge.bridgeId = event.bridgeId
       break
     }
 
     case 'toolRequest': {
+      console.log(`[streamEvents] toolRequest: ${event.toolName} requestId=${event.requestId}`)
       // Defensive: the dispatcher already converts caught throws into
       // `{ ok: false, error }`, but if anything ever escapes (or if
       // the bridge evolves) we still need to ALWAYS POST a result so the
@@ -126,6 +128,7 @@ export async function processStreamEvent(
       let result: AiToolOutput
       try {
         result = await dispatchTool(event.toolName, event.input)
+        console.log(`[streamEvents] toolRequest: ${event.toolName} ok=${result.ok}`)
       } catch (err) {
         const message = getErrorMessage(err, String(err))
         console.error(`[AgentSlice] tool ${event.toolName} threw unexpectedly:`, err)
@@ -137,11 +140,13 @@ export async function processStreamEvent(
       }
       // Snapshot AFTER the tool ran so the server sees the mutation it made.
       const snapshot = buildSnapshot?.()
+      console.log(`[streamEvents] posting toolResult: bridgeId=${bridge.bridgeId} requestId=${event.requestId}`)
       await postToolResult(bridge.bridgeId, event.requestId, result, signal, snapshot)
       break
     }
 
     case 'toolCall': {
+      console.log(`[streamEvents] toolCall: ${event.toolName} id=${event.toolCallId}`)
       // Driver issued a tool call (status: pending). Drain any pending text
       // deltas BEFORE adding the block so the chronological order
       // text → tool → text is preserved.
@@ -178,6 +183,7 @@ export async function processStreamEvent(
     }
 
     case 'toolResult': {
+      console.log(`[streamEvents] toolResult: ${event.toolName} id=${event.toolCallId} ok=${event.ok}`)
       // Paired with the preceding `toolCall` (matched by toolCallId).
       // Flip its status to success/error + attach the result envelope so
       // the UI can render any failure message inline with the badge.
@@ -224,7 +230,7 @@ export async function processStreamEvent(
       // boundary). The admin needs the actual reason, not a "Something
       // went wrong" placeholder; this surface is admin-only (capability
       // gated) so info-disclosure concerns don't apply.
-      console.error('[AgentSlice] Server error event:', event.message)
+      console.error('[streamEvents] Server error event:', event.message)
       set({ agentError: event.message })
       break
     }

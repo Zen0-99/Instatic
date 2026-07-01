@@ -163,6 +163,7 @@ export interface AgentToolCall {
  */
 type AgentMessageBlock =
   | { kind: 'text'; text: string }
+  | { kind: 'thinking'; text: string }
   | { kind: 'toolCall'; toolCall: AgentToolCall }
 
 export interface AgentMessage {
@@ -170,6 +171,8 @@ export interface AgentMessage {
   role: 'user' | 'assistant'
   blocks: AgentMessageBlock[]
   timestamp: number
+  /** Set when the AI finishes streaming this message (SSE closes or done event). */
+  isComplete?: boolean
 }
 
 // ---------------------------------------------------------------------------

@@ -36,6 +36,7 @@ interface RunChatArgs {
  */
 export async function runChat(args: RunChatArgs): Promise<void> {
   const { driver, request, persister, emit } = args
+  console.log(`[ai/runner] runChat started: driver=${request.credentials.providerId ?? 'unknown'} model=${request.modelId}`)
 
   // Per-turn assembly. Drivers stream `text` events as deltas; we
   // accumulate per assistant-message until the next non-text event lands,
@@ -49,6 +50,7 @@ export async function runChat(args: RunChatArgs): Promise<void> {
     if (!pendingAssistantText) return
     const text = pendingAssistantText
     pendingAssistantText = ''
+    console.log(`[ai/runner] flushPendingAssistantText: ${text.length} chars`)
     await persister.appendAssistantText(text)
   }
 
@@ -58,6 +60,7 @@ export async function runChat(args: RunChatArgs): Promise<void> {
       // even if persistence fails (we never want to silently lose a UI
       // update because the DB is slow).
       emit(event)
+      console.log(`[ai/runner] event: ${event.type}`)
 
       switch (event.type) {
         case 'text': {

@@ -45,6 +45,7 @@ import type {
   AgentTextStreamSink,
 } from './types'
 import { getErrorMessage } from '@core/utils/errorMessage'
+import type { AiToolOutput } from '@core/ai'
 
 // Session-id is in-memory only. While the editor stays open, follow-up
 // messages reuse the SDK session id (Claude has continuity across the
@@ -241,6 +242,8 @@ export function createAgentSlice(
     agentActiveModelId: null,
     agentConversations: [],
     agentContextTokens: null,
+    agentCascadeRelay: false,
+    agentCascadeModelId: null,
 
     // ── UI actions ───────────────────────────────────────────────────────────
     openAgent() {
@@ -363,6 +366,20 @@ export function createAgentSlice(
     },
 
     // ── sendAgentMessage ─────────────────────────────────────────────────────
+    toggleCascadeRelay() {
+      set((state) => {
+        const next = !state.agentCascadeRelay
+        state.agentCascadeRelay = next
+        if (next && !state.agentCascadeModelId) {
+          state.agentCascadeModelId = 'kimi-k2-6'
+        }
+      })
+    },
+
+    setCascadeModel(modelId: string) {
+      set({ agentCascadeModelId: modelId })
+    },
+
     async sendAgentMessage(content) {
       if (get().isAgentStreaming) return // one request at a time
 
@@ -391,8 +408,216 @@ export function createAgentSlice(
       _abortController = new AbortController()
       const bridge: AgentBridgeRuntime = { bridgeId: null }
 
+      // ── Cascade relay path ──────────────────────────────────────────────
+      // When the "IDE Cascade" toggle is ON, route the message through the
+      // local MCP server's HTTP relay instead of the native AI provider.
+      if (get().agentCascadeRelay) {
+        try {
+          const relayUrl = import.meta.env.DEV
+            ? 'http://localhost:9876'
+            : 'http://localhost:9876'
+
+          const snapshot = config.buildSnapshot?.()
+          const res = await fetch(`${relayUrl}/chat/message`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              text: content,
+              modelUid: get().agentCascadeModelId ?? undefined,
+              snapshot,
+            }),
+            signal: _abortController.signal,
+          })
+
+          if (!res.ok) {
+            throw new Error(`Relay request failed: ${res.status} ${res.statusText}`)
+          }
+
+          const { messageId } = await res.json() as { messageId: string }
+
+          // Open SSE stream for the response
+          const sseRes = await fetch(`${relayUrl}/chat/stream/${messageId}`, {
+            signal: _abortController.signal,
+          })
+
+          if (!sseRes.ok || !sseRes.body) {
+            throw new Error('Failed to open SSE stream for relay response')
+          }
+
+          const reader = sseRes.body.getReader()
+          const decoder = new TextDecoder()
+          let sseBuffer = ''
+
+          while (true) {
+            const { done, value } = await reader.read()
+            if (done) break
+            sseBuffer += decoder.decode(value, { stream: true })
+            const lines = sseBuffer.split('\n\n')
+            sseBuffer = lines.pop() ?? ''
+            for (const line of lines) {
+              const dataLine = line.trim()
+              if (!dataLine.startsWith('data: ')) continue
+              const json = dataLine.slice(6)
+              try {
+                const event = JSON.parse(json) as {
+                  type: string
+                  text?: string
+                  toolCalls?: Array<{ toolName: string; input: unknown; result: unknown }>
+                  toolRequestId?: string
+                  name?: string
+                  args?: unknown
+                }
+                if (event.type === 'thinking' && event.text) {
+                  flushPendingText()
+                  const thinkingText = event.text
+                  set((state) => {
+                    const msg = state.agentMessages.find((m) => m.id === assistantId)
+                    if (msg) {
+                      msg.blocks.push({ kind: 'thinking', text: thinkingText })
+                    }
+                  })
+                } else if (event.type === 'response' && event.text) {
+                  appendTextDelta(assistantId, event.text)
+                  if (event.toolCalls) {
+                    flushPendingText()
+                    set((state) => {
+                      const msg = state.agentMessages.find((m) => m.id === assistantId)
+                      if (msg) {
+                        for (const tc of event.toolCalls!) {
+                          msg.blocks.push({
+                            kind: 'toolCall',
+                            toolCall: {
+                              id: nanoid(),
+                              actionType: tc.toolName.replace(/^mcp__instatic__/, ''),
+                              params: tc.input as Record<string, unknown>,
+                              result: tc.result as AiToolOutput | null,
+                              status: 'success',
+                            },
+                          })
+                        }
+                      }
+                    })
+                  }
+                } else if (event.type === 'toolRequest' && event.toolRequestId) {
+                  const toolRequestId = event.toolRequestId
+                  const toolName = event.name ?? ''
+                  const toolInput = event.args as Record<string, unknown>
+                  const traceId = (event as any).traceId ?? 'browser'
+                  flushPendingText()
+
+                  // Add a pending toolCall block to the UI
+                  const toolCallId = nanoid()
+                  set((state) => {
+                    const msg = state.agentMessages.find((m) => m.id === assistantId)
+                    if (msg) {
+                      msg.blocks.push({
+                        kind: 'toolCall',
+                        toolCall: {
+                          id: toolCallId,
+                          actionType: toolName,
+                          params: toolInput,
+                          result: null,
+                          status: 'pending',
+                        },
+                      })
+                    }
+                  })
+
+                  // Execute the tool in the browser with a bounded budget.
+                  // Budget (25s) is shorter than the relay's 30s reject so we
+                  // report failure *before* the relay gives up, keeping the
+                  // SSE loop alive and surfacing the stall to the AI/UI.
+                  const BROWSER_TOOL_BUDGET_MS = 25_000
+                  const toolStart = Date.now()
+                  let result: AiToolOutput
+                  try {
+                    const toolPromise = config.dispatchTool(toolName, toolInput)
+                    result = await Promise.race([
+                      toolPromise,
+                      new Promise<never>((_, reject) => {
+                        setTimeout(() => {
+                          reject(new Error(`Browser tool '${toolName}' exceeded ${BROWSER_TOOL_BUDGET_MS}ms budget`))
+                        }, BROWSER_TOOL_BUDGET_MS)
+                      }),
+                    ])
+                    console.error(`[AgentSlice] Tool ${toolName} (trace ${traceId}) completed in ${Date.now() - toolStart}ms`)
+                  } catch (err) {
+                    const elapsed = Date.now() - toolStart
+                    const errMsg = err instanceof Error ? err.message : String(err)
+                    console.error(`[AgentSlice] Tool ${toolName} (trace ${traceId}) failed after ${elapsed}ms: ${errMsg}`)
+                    result = { ok: false, error: errMsg }
+                    set((state) => {
+                      const msg = state.agentMessages.find((m) => m.id === assistantId)
+                      if (msg) {
+                        const block = msg.blocks.find(
+                          (b) => b.kind === 'toolCall' && b.toolCall.id === toolCallId,
+                        )
+                        if (block && block.kind === 'toolCall') {
+                          block.toolCall.result = result
+                          block.toolCall.status = 'error'
+                        }
+                      }
+                    })
+                  }
+
+                  // POST result (or error) back to relay — also bounded
+                  try {
+                    const postPromise = fetch(`${relayUrl}/chat/tool-result`, {
+                      method: 'POST',
+                      headers: { 'Content-Type': 'application/json' },
+                      body: JSON.stringify({ toolRequestId, result }),
+                      signal: _abortController?.signal,
+                    })
+                    const postRes = await Promise.race([
+                      postPromise,
+                      new Promise<never>((_, reject) => {
+                        setTimeout(() => reject(new Error('tool-result POST timeout')), 10_000)
+                      }),
+                    ])
+                    if (!postRes.ok) {
+                      console.error(`[AgentSlice] tool-result POST failed: ${postRes.status}`)
+                    }
+                  } catch (postErr) {
+                    const postMsg = postErr instanceof Error ? postErr.message : String(postErr)
+                    console.error(`[AgentSlice] tool-result POST error (trace ${traceId}): ${postMsg}`)
+                  }
+                } else if (event.type === 'done') {
+                  break
+                }
+              } catch { /* skip malformed SSE */ }
+            }
+          }
+          flushPendingText()
+        } catch (err) {
+          _abortController?.abort()
+          if (err instanceof Error && err.name === 'AbortError') {
+            flushPendingText()
+          } else {
+            const detail = getErrorMessage(err, String(err))
+            const isNetworkError = err instanceof TypeError || detail.includes('fetch') || detail.includes('network')
+            const message = isNetworkError
+              ? 'Cascade relay not reachable at localhost:9876. Ensure the Instatic MCP server is configured in Windsurf MCP settings and Windsurf is running.'
+              : `Cascade relay error: ${detail}`
+            console.error('[AgentSlice] Cascade relay error:', err)
+            surfaceAssistantError(set, assistantId, message, '_(relay error)_')
+          }
+        } finally {
+          _abortController = null
+          set((state) => {
+            state.isAgentStreaming = false
+            const msg = state.agentMessages.find((m) => m.id === assistantId)
+            if (msg) msg.isComplete = true
+          })
+        }
+        return
+      }
+
+      // ── Native AI provider path ─────────────────────────────────────────
+
       try {
+        console.log('[AgentSlice] Native AI path: building snapshot...')
         const snapshot = config.buildSnapshot()
+        console.log('[AgentSlice] Native AI path: snapshot built')
 
         // Lazily create the conversation row (staged picker values or scope
         // default). Null means no provider is configured for this scope.
@@ -407,8 +632,10 @@ export function createAgentSlice(
           )
           return
         }
+        console.log(`[AgentSlice] Native AI path: conversationId=${conversationId}`)
 
         const body: AgentRequestBody = { conversationId, prompt: content, snapshot }
+        console.log(`[AgentSlice] Native AI path: POST /admin/api/ai/chat/${config.scope}`)
         const res = await fetch(`/admin/api/ai/chat/${config.scope}`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
@@ -432,7 +659,13 @@ export function createAgentSlice(
 
         if (!res.body) throw new Error('Agent response has no body')
 
+        console.log('[AgentSlice] Native AI path: reading NDJSON stream...')
+        let eventCount = 0
         for await (const event of readNdjsonStream(res.body.getReader(), ServerStreamEventSchema)) {
+          eventCount++
+          if (eventCount <= 5 || eventCount % 10 === 0 || event.type === 'toolRequest' || event.type === 'error') {
+            console.log(`[AgentSlice] Native AI path: event #${eventCount} type=${event.type}`)
+          }
           await processStreamEvent(
             event,
             assistantId,
@@ -444,6 +677,7 @@ export function createAgentSlice(
             config.buildSnapshot,
           )
         }
+        console.log(`[AgentSlice] Native AI path: stream ended, ${eventCount} events total`)
 
         flushPendingText()
       } catch (err) {
@@ -465,7 +699,11 @@ export function createAgentSlice(
         }
       } finally {
         _abortController = null
-        set({ isAgentStreaming: false })
+        set((state) => {
+          state.isAgentStreaming = false
+          const msg = state.agentMessages.find((m) => m.id === assistantId)
+          if (msg) msg.isComplete = true
+        })
       }
     },
   }
