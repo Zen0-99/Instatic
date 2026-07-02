@@ -339,3 +339,44 @@
 .sortButton[aria-pressed="true"] .sortChevron {
     color: var(--text);
 }
+
+/* ── Menu resize handle ──────────────────────────────────────────────── */
+
+.resizeHandle {
+    position: sticky;
+    bottom: 0;
+    margin-left: auto;
+    width: 16px;
+    height: 16px;
+    cursor: se-resize;
+    display: flex;
+    align-items: flex-end;
+    justify-content: flex-end;
+    padding: 0 3px 3px 0;
+    opacity: 0.3;
+    transition: opacity 100ms ease;
+    pointer-events: auto;
+    flex-shrink: 0;
+}
+
+.resizeHandle:hover {
+    opacity: 0.65;
+}
+
+.resizeGrip {
+    width: 9px;
+    height: 9px;
+    position: relative;
+}
+
+.resizeGrip::after {
+    content: '';
+    position: absolute;
+    right: 0;
+    bottom: 0;
+    width: 7px;
+    height: 7px;
+    border-right: 1.5px solid var(--text-muted);
+    border-bottom: 1.5px solid var(--text-muted);
+    border-radius: 0 0 1px 0;
+}
