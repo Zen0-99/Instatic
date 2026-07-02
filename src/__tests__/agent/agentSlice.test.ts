@@ -35,6 +35,7 @@ function freshAgentState() {
     agentActiveModelId: null,
     agentContextTokens: null,
     agentConversations: [],
+    agentDraftMentions: [],
     hasUnsavedChanges: false,
   })
 
@@ -507,8 +508,8 @@ describe('sendAgentMessage — request lifecycle', () => {
 })
 
 describe('conversation reset key-set', () => {
-  // All three reset paths must clear the SAME six keys — agentContextTokens and
-  // agentError have each silently drifted out of one copy in the past.
+  // All three reset paths must clear the SAME seven keys — agentContextTokens,
+  // agentError, and agentDraftMentions have each silently drifted out in the past.
   const RESET_SNAPSHOT = {
     agentMessages: [],
     agentError: null,
@@ -516,6 +517,7 @@ describe('conversation reset key-set', () => {
     agentActiveCredentialId: null,
     agentActiveModelId: null,
     agentContextTokens: null,
+    agentDraftMentions: [],
   }
 
   function seedDirtyConversation() {
@@ -527,6 +529,7 @@ describe('conversation reset key-set', () => {
       agentActiveCredentialId: 'cred-1',
       agentActiveModelId: 'model-1',
       agentContextTokens: 4096,
+      agentDraftMentions: [{ nodeId: 'abc123', label: 'Layer abc123' }],
     })
   }
 
@@ -539,10 +542,11 @@ describe('conversation reset key-set', () => {
       agentActiveCredentialId: s.agentActiveCredentialId,
       agentActiveModelId: s.agentActiveModelId,
       agentContextTokens: s.agentContextTokens,
+      agentDraftMentions: s.agentDraftMentions,
     }
   }
 
-  it('startNewAgentConversation resets the full six-key set (incl. agentContextTokens)', () => {
+  it('startNewAgentConversation resets the full seven-key set (incl. agentContextTokens)', () => {
     seedDirtyConversation()
     useEditorStore.getState().startNewAgentConversation()
     expect(pickResetKeys()).toEqual(RESET_SNAPSHOT)
@@ -779,5 +783,46 @@ describe('setAgentProvider', () => {
     expect(useEditorStore.getState().agentActiveCredentialId).toBe('cred-9')
     expect(useEditorStore.getState().agentActiveModelId).toBe('model-9')
     expect(useEditorStore.getState().agentError).toBeNull()
+  })
+})
+
+// ---------------------------------------------------------------------------
+// stageAgentMentions — "Add to AI Chat" staging
+// ---------------------------------------------------------------------------
+
+describe('stageAgentMentions', () => {
+  it('stages mentions and opens the agent panel', () => {
+    freshAgentState()
+    useEditorStore.setState({ isAgentOpen: false, agentDraftMentions: [] })
+
+    useEditorStore.getState().stageAgentMentions([{ nodeId: 'abc123', label: 'Layer abc123' }])
+
+    expect(useEditorStore.getState().agentDraftMentions).toEqual([{ nodeId: 'abc123', label: 'Layer abc123' }])
+    expect(useEditorStore.getState().isAgentOpen).toBe(true)
+  })
+
+  it('appends to existing mentions', () => {
+    freshAgentState()
+    useEditorStore.setState({ agentDraftMentions: [{ nodeId: 'old', label: 'Layer old' }] })
+
+    useEditorStore.getState().stageAgentMentions([
+      { nodeId: 'abc123', label: 'Layer abc123' },
+      { nodeId: 'def456', label: 'Layer def456' },
+    ])
+
+    expect(useEditorStore.getState().agentDraftMentions).toEqual([
+      { nodeId: 'old', label: 'Layer old' },
+      { nodeId: 'abc123', label: 'Layer abc123' },
+      { nodeId: 'def456', label: 'Layer def456' },
+    ])
+  })
+
+  it('clears mentions via clearAgentDraftMentions', () => {
+    freshAgentState()
+    useEditorStore.setState({ agentDraftMentions: [{ nodeId: 'abc123', label: 'Layer abc123' }] })
+
+    useEditorStore.getState().clearAgentDraftMentions()
+
+    expect(useEditorStore.getState().agentDraftMentions).toEqual([])
   })
 })

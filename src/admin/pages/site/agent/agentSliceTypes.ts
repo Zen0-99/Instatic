@@ -28,6 +28,11 @@ export interface AgentSliceConfig {
   readonly noProviderMessage?: string
 }
 
+export interface AgentDraftMention {
+  nodeId: string
+  label: string
+}
+
 export interface AgentSlice {
   isAgentOpen: boolean
   isAgentStreaming: boolean
@@ -38,11 +43,17 @@ export interface AgentSlice {
   agentActiveModelId: string | null
   agentConversations: ConversationView[]
   agentContextTokens: number | null
+  /**
+   * Mention queue for the agent composer. Set by "Add to AI Chat" actions
+   * from the canvas / layers panel; consumed once by AgentComposer then
+   * cleared. Each entry carries the layer's nodeId and display label.
+   */
+  agentDraftMentions: AgentDraftMention[]
 
   openAgent(): void
   closeAgent(): void
   toggleAgent(): void
-  sendAgentMessage(content: string): Promise<void>
+  sendAgentMessage(content: string, mentions?: import('./types').AgentMessageMention[]): Promise<void>
   abortAgent(): void
   clearAgentMessages(): void
   loadAgentConversations(): Promise<void>
@@ -51,6 +62,15 @@ export interface AgentSlice {
   deleteAgentConversation(id: string): Promise<void>
   setAgentProvider(credentialId: string, modelId: string): Promise<void>
   loadScopeDefault(): Promise<void>
+  /**
+   * Queue layer mentions into the agent composer and open the panel so the
+   * user can finish their prompt. Used by "Add to AI Chat" flows.
+   */
+  stageAgentMentions(mentions: AgentDraftMention[]): void
+  /**
+   * Clear the mention queue after the composer has consumed it.
+   */
+  clearAgentDraftMentions(): void
 }
 
 export type EditorStoreSet = Parameters<EditorStoreSliceCreator<AgentSlice>>[0]

@@ -171,11 +171,22 @@ type AgentMessageBlock =
   | { kind: 'text'; text: string }
   | { kind: 'toolCall'; toolCall: AgentToolCall }
 
+export interface AgentMessageMention {
+  nodeId: string
+  label: string
+}
+
 export interface AgentMessage {
   id: string
   role: 'user' | 'assistant'
   blocks: AgentMessageBlock[]
   timestamp: number
+  /**
+   * Layer mentions embedded in this message, purely for client-side
+   * rendering. Not sent to the server — populated from the composer's
+   * DOM when the user sends a message, or extracted from assistant text.
+   */
+  mentions?: AgentMessageMention[]
 }
 
 // ---------------------------------------------------------------------------

@@ -21,13 +21,14 @@
  * @see Guideline #410 — 3 Self-Contained Independent Panels
  */
 
-import { useRef, useEffect, memo } from 'react'
+import { useRef, useEffect, useCallback } from 'react'
 import { useAgentStore } from '@admin/ai/useAgentStore'
 import { useAsyncResource } from '@admin/lib/useAsyncResource'
 import { useAdminNavigate } from '@admin/lib/useAdminNavigate'
 import { useAuthenticatedAdminUser } from '@admin/sessionContext'
 import { listCredentials, listModels } from '@admin/ai/api'
-import { renderMarkdownToHtml, type AgentMessage, type AgentToolCall } from '@site/agent'
+import { type AgentMessage, type AgentToolCall, type AgentMessageMention } from '@site/agent'
+import { RichTextBubble } from './RichTextBubble'
 import { SquareSolidIcon } from 'pixel-art-icons/icons/square-solid'
 import { SendSolidIcon } from 'pixel-art-icons/icons/send-solid'
 import { AiBoxSolidIcon } from 'pixel-art-icons/icons/ai-box-solid'
@@ -38,7 +39,7 @@ import { PanelHeader } from '@admin/shared/PanelHeader'
 import { UserAvatar } from '@admin/shared/UserAvatar'
 import { Button } from '@ui/components/Button'
 import { EmptyState } from '@ui/components/EmptyState'
-import { Textarea } from '@ui/components/Input'
+import { AgentComposer } from './AgentComposer'
 import { useDraggablePanel } from '@site/hooks/useDraggablePanel'
 import { cn } from '@ui/cn'
 import { ModelPicker } from './ModelPicker'
@@ -122,7 +123,6 @@ export function AgentPanel({ variant = 'floating' }: { variant?: PanelVariant })
     { swallowErrors: true },
   )
 
-  const inputRef = useRef<HTMLTextAreaElement>(null)
   const threadRef = useRef<HTMLDivElement>(null)
 
   // ── Draggable panel position ───────────────────────────────────────────────
@@ -142,16 +142,6 @@ export function AgentPanel({ variant = 'floating' }: { variant?: PanelVariant })
     const el = threadRef.current
     if (el) el.scrollTop = el.scrollHeight
   }, [messages])
-
-  // Focus input when panel becomes active (isOpen transitions to true).
-  // The 50ms delay lets the panel's open transition settle before we steal
-  // focus; cleanup cancels the pending focus if the panel closes again
-  // (or the component unmounts) before the timer fires.
-  useEffect(() => {
-    if (!isOpen) return
-    const id = setTimeout(() => inputRef.current?.focus(), 50)
-    return () => clearTimeout(id)
-  }, [isOpen])
 
   // Preload the per-scope default credential + model when the panel opens, so
   // the picker shows the configured default immediately and the first send
@@ -173,23 +163,10 @@ export function AgentPanel({ variant = 'floating' }: { variant?: PanelVariant })
     return () => document.removeEventListener('keydown', onKey)
   }, [isOpen, closeAgent])
 
-  const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault()
-    const input = inputRef.current
-    if (!input) return
-    const content = input.value.trim()
+  const handleComposerSubmit = useCallback(async (content: string, mentions?: AgentMessageMention[]) => {
     if (!content || isStreaming) return
-    input.value = ''
-    input.style.height = 'auto'
-    await sendAgentMessage(content)
-  }
-
-  const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
-    if (e.key === 'Enter' && !e.shiftKey) {
-      e.preventDefault()
-      handleSubmit(e as unknown as React.FormEvent)
-    }
-  }
+    await sendAgentMessage(content, mentions)
+  }, [isStreaming, sendAgentMessage])
 
   // Always-mounted: CSS display:none when closed (via .floatPanelClosed) preserves
   // Zustand state across open/close cycles without conditional rendering.
@@ -284,27 +261,18 @@ export function AgentPanel({ variant = 'floating' }: { variant?: PanelVariant })
         {/* Live context-window meter — renders once the active model's window
             is known (pre-turn shows 0 / window). */}
         <ContextMeter windowTokens={contextWindowResource.data} />
-        <form onSubmit={handleSubmit} className={styles.inputForm}>
-          {/* Textarea is hidden while streaming — the controls row collapses
+        <form onSubmit={(e) => e.preventDefault()} className={styles.inputForm}>
+          {/* Composer is hidden while streaming — the controls row collapses
               to just the model picker + Stop button. */}
           {!isStreaming && (
-            <Textarea
-              ref={inputRef}
+            <AgentComposer
               placeholder={lockReason === 'setup'
                 ? 'Add AI credentials to start chatting'
                 : lockReason === 'chooseModel'
                   ? 'Choose a model below to start'
                   : 'Tell me what to build… (Enter to send)'}
-              aria-label="Message to AI assistant"
-              rows={2}
-              resize="none"
               disabled={composerLocked}
-              onKeyDown={handleKeyDown}
-              onChange={(e) => {
-                // Auto-grow textarea
-                e.target.style.height = 'auto'
-                e.target.style.height = `${Math.min(e.target.scrollHeight, 120)}px`
-              }}
+              onSubmit={handleComposerSubmit}
             />
           )}
           {/* Controls row: model picker on the left (saves vertical space),
@@ -392,7 +360,7 @@ function MessageBubble({ group }: { group: ConversationGroup }) {
           DOMPurify-sanitised HTML pipeline. */}
       {groupRenderItems(group.messages).map((item) =>
         item.kind === 'text' ? (
-          <MarkdownTextBubble key={item.key} text={item.text} isUser={isUser} />
+          <RichTextBubble key={item.key} text={item.text} isUser={isUser} mentions={item.mentions} />
         ) : (
           // A run of consecutive tool calls shares one container so the rows
           // stack tightly; text blocks around them stay separate bubbles.
@@ -430,7 +398,7 @@ function groupConsecutiveMessages(messages: AgentMessage[]): ConversationGroup[]
 type MessageBlock = AgentMessage['blocks'][number]
 
 type MessageRenderItem =
-  | { kind: 'text'; key: string; text: string }
+  | { kind: 'text'; key: string; text: string; mentions?: AgentMessageMention[] }
   | { kind: 'tools'; key: string; toolCalls: AgentToolCall[] }
 
 function groupRenderItems(messages: AgentMessage[]): MessageRenderItem[] {
@@ -439,7 +407,7 @@ function groupRenderItems(messages: AgentMessage[]): MessageRenderItem[] {
     message.blocks.forEach((block: MessageBlock, index) => {
       if (block.kind === 'text') {
         // Position-based key, stable as streaming deltas append in place.
-        items.push({ kind: 'text', key: `text-${message.id}-${index}`, text: block.text })
+        items.push({ kind: 'text', key: `text-${message.id}-${index}`, text: block.text, mentions: message.mentions })
         return
       }
       const last = items.at(-1)
@@ -454,38 +422,6 @@ function groupRenderItems(messages: AgentMessage[]): MessageRenderItem[] {
 }
 
 // ---------------------------------------------------------------------------
-// MarkdownTextBubble — parses + sanitises the block text and injects it via
-// dangerouslySetInnerHTML. Memoised render so streaming deltas don't re-parse
-// markdown for unchanged blocks.
-// ---------------------------------------------------------------------------
-
-interface MarkdownTextBubbleProps {
-  text: string
-  isUser: boolean
-}
-
-// Exception #2: React.memo re-render bailout on a hot, list-rendered component
-// (one per text block, re-rendered on every streaming delta).
-const MarkdownTextBubble = memo(function MarkdownTextBubble({
-  text,
-  isUser,
-}: MarkdownTextBubbleProps) {
-  const html = renderMarkdownToHtml(text)
-  // Empty/whitespace-only blocks don't render at all (avoids stray bubbles
-  // around stripped-out tool blocks during streaming).
-  if (!html) return null
-  return (
-    <div
-      className={cn(
-        styles.messageText,
-        isUser ? styles.messageTextUser : styles.messageTextAssistant,
-        styles.markdownText,
-      )}
-      // Safe: sanitised by DOMPurify (via sanitizeRichtext) before reaching here.
-      dangerouslySetInnerHTML={{ __html: html }}
-    />
-  )
-})
 
 // ---------------------------------------------------------------------------
 // Empty state

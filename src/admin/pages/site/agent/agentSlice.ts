@@ -42,6 +42,7 @@ export type { AgentSlice, AgentSliceConfig } from './agentSliceTypes'
 import type {
   AgentBridgeRuntime,
   AgentMessage,
+  AgentMessageMention,
   AgentRequestBody,
   AgentTextStreamSink,
 } from './types'
@@ -124,6 +125,7 @@ type ConversationResetKeys =
   | 'agentActiveCredentialId'
   | 'agentActiveModelId'
   | 'agentContextTokens'
+  | 'agentDraftMentions'
 
 function conversationResetState(): Pick<AgentSlice, ConversationResetKeys> {
   return {
@@ -133,6 +135,7 @@ function conversationResetState(): Pick<AgentSlice, ConversationResetKeys> {
     agentActiveCredentialId: null,
     agentActiveModelId: null,
     agentContextTokens: null,
+    agentDraftMentions: [],
   }
 }
 
@@ -242,6 +245,7 @@ export function createAgentSlice(
     agentActiveModelId: null,
     agentConversations: [],
     agentContextTokens: null,
+    agentDraftMentions: [],
 
     // ── UI actions ───────────────────────────────────────────────────────────
     openAgent() {
@@ -256,6 +260,17 @@ export function createAgentSlice(
       set((s) => {
         s.isAgentOpen = !s.isAgentOpen
       })
+    },
+
+    stageAgentMentions(mentions) {
+      set((state) => {
+        state.agentDraftMentions.push(...mentions)
+        state.isAgentOpen = true
+      })
+    },
+
+    clearAgentDraftMentions() {
+      set({ agentDraftMentions: [] })
     },
 
     abortAgent() {
@@ -390,7 +405,7 @@ export function createAgentSlice(
     },
 
     // ── sendAgentMessage ─────────────────────────────────────────────────────
-    async sendAgentMessage(content) {
+    async sendAgentMessage(content, mentions?: AgentMessageMention[]) {
       if (get().isAgentStreaming) return // one request at a time
 
       const userMsg: AgentMessage = {
@@ -398,6 +413,7 @@ export function createAgentSlice(
         role: 'user',
         blocks: [{ kind: 'text', text: content }],
         timestamp: Date.now(),
+        mentions,
       }
 
       const assistantId = nanoid()
