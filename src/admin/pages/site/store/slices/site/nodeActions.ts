@@ -12,10 +12,12 @@
 
 import { nanoid } from 'nanoid'
 import { registry } from '@core/module-engine'
+import { isDomNode, domCanHaveChildren } from '@core/page-tree'
 
 import {
   cloneScopedClassesForNodeMap,
   createNode,
+  createDomNode,
   insertNode,
   deleteNode,
   updateNodeProps,
@@ -43,11 +45,13 @@ import type { SiteSlice, SiteSliceHelpers } from './types'
 type NodeActions = Pick<
   SiteSlice,
   | 'insertNode'
+  | 'insertDomNode'
   | 'insertComponentRef'
   | 'insertImportedNodes'
   | 'deleteNode'
   | 'deleteNodes'
   | 'updateNodeProps'
+  | 'updateDomNode'
   | 'setNodeInlineStyles'
   | 'removeNodeInlineStyleProperty'
   | 'clearNodeInlineStyles'
@@ -186,6 +190,21 @@ export function createNodeActions(helpers: SiteSliceHelpers): NodeActions {
       return inserted ? newNode.id : ''
     },
 
+    insertDomNode: (parentId, tag, options = {}) => {
+      const newNode = createDomNode(tag, {
+        attributes: options.attributes,
+        textContent: options.textContent,
+        classIds: options.classIds,
+      })
+      let inserted = false
+      mutateActiveTree((tree) => {
+        insertNode(tree, newNode, parentId, options.index)
+        inserted = true
+        return true
+      })
+      return inserted ? newNode.id : ''
+    },
+
     insertImportedNodes: (parentId, fragment, opts) => {
       if (fragment.rootIds.length === 0) return []
       const insertedRootIds: string[] = []
@@ -193,8 +212,7 @@ export function createNodeActions(helpers: SiteSliceHelpers): NodeActions {
         const parent = tree.nodes[parentId]
         if (!parent) return false
         const isRoot = tree.rootNodeId === parentId
-        const definition = registry.get(parent.moduleId)
-        const acceptsChildren = isRoot || definition?.canHaveChildren === true
+        const acceptsChildren = isRoot || (isDomNode(parent) ? domCanHaveChildren(parent.tag ?? '') : registry.get(parent.moduleId)?.canHaveChildren === true)
         if (!acceptsChildren) return false
 
         // The HTML importer stamps class *names* onto each fragment node's
@@ -323,6 +341,57 @@ export function createNodeActions(helpers: SiteSliceHelpers): NodeActions {
         },
         coalesceKeyForPatch('props', nodeId, patch),
       )
+    },
+
+    updateDomNode: (nodeId, patch) => {
+      mutateActiveTree((tree) => {
+        const node = tree.nodes[nodeId]
+        if (!node) throw new Error(`[PageTree] Node "${nodeId}" not found`)
+        let changed = false
+
+        if (patch.tag !== undefined && patch.tag !== node.tag) {
+          node.tag = patch.tag
+          changed = true
+        }
+
+        if (patch.attributes === null) {
+          if (node.attributes) {
+            delete node.attributes
+            changed = true
+          }
+        } else if (patch.attributes !== undefined) {
+          const next = { ...(node.attributes ?? {}) }
+          for (const [key, value] of Object.entries(patch.attributes)) {
+            if (value === null || value === undefined || value === '') {
+              if (key in next) {
+                delete next[key]
+                changed = true
+              }
+            } else if (next[key] !== value) {
+              next[key] = value
+              changed = true
+            }
+          }
+          if (Object.keys(next).length > 0) {
+            node.attributes = next
+          } else if (node.attributes) {
+            delete node.attributes
+            changed = true
+          }
+        }
+
+        if (patch.textContent === null) {
+          if (node.textContent !== undefined) {
+            delete node.textContent
+            changed = true
+          }
+        } else if (patch.textContent !== undefined && patch.textContent !== node.textContent) {
+          node.textContent = patch.textContent
+          changed = true
+        }
+
+        return changed
+      })
     },
 
     setNodeInlineStyles: (nodeId, patch) => {

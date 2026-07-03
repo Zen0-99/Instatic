@@ -473,20 +473,19 @@ describe('base.container — <ul> and <ol> (builtin tags)', () => {
     }
   })
 
-  it('<li> children become base.container with tag:"custom", customTag:"li"', () => {
+  it('<li> children become DOM-native nodes with tag "li"', () => {
     const result = imported('<ul><li>First</li></ul>')
     const ulId = result.rootIds[0]!
     const ulNode = result.nodes[ulId]!
     const liId = ulNode.children[0]!
     const liNode = result.nodes[liId]!
 
-    // <li> is not in BUILTIN_HTML_TAGS → catch-all: tag:'custom', customTag:'li'
-    expect(liNode.moduleId).toBe('base.container')
-    expect(liNode.props.tag).toBe('custom')
-    expect(liNode.props.customTag).toBe('li')
+    // <li> is not in BUILTIN_HTML_TAGS → catch-all: DOM-native node
+    expect(liNode.moduleId).toBe('')
+    expect(liNode.tag).toBe('li')
   })
 
-  it('<ol> children are correct — li uses tag:"custom"', () => {
+  it('<ol> children are correct — li are DOM-native nodes', () => {
     const result = imported('<ol><li>A</li><li>B</li><li>C</li></ol>')
     const olId = result.rootIds[0]!
     const olNode = result.nodes[olId]!
@@ -494,8 +493,8 @@ describe('base.container — <ul> and <ol> (builtin tags)', () => {
 
     for (const childId of olNode.children) {
       const child = result.nodes[childId]!
-      expect(child.props.tag).toBe('custom')
-      expect(child.props.customTag).toBe('li')
+      expect(child.moduleId).toBe('')
+      expect(child.tag).toBe('li')
     }
   })
 })
@@ -569,22 +568,20 @@ describe('base.container — semantic container tags (BUILTIN_HTML_TAGS)', () =>
 })
 
 // ---------------------------------------------------------------------------
-// 7. <figure> / <blockquote> → base.container with tag:"custom" + customTag
+// 7. <figure> / <blockquote> → DOM-native nodes (catch-all rule)
 // ---------------------------------------------------------------------------
 
-describe('base.container — custom tag (NOT in BUILTIN_HTML_TAGS)', () => {
-  it('<figure> → base.container tag:"custom", customTag:"figure"', () => {
+describe('DOM-native — custom tag (NOT in BUILTIN_HTML_TAGS)', () => {
+  it('<figure> → DOM-native node with tag "figure"', () => {
     const node = single('<figure></figure>')
-    expect(node.moduleId).toBe('base.container')
-    expect(node.props.tag).toBe('custom')
-    expect(node.props.customTag).toBe('figure')
+    expect(node.moduleId).toBe('')
+    expect(node.tag).toBe('figure')
   })
 
-  it('<blockquote> → base.container tag:"custom", customTag:"blockquote"', () => {
+  it('<blockquote> → DOM-native node with tag "blockquote"', () => {
     const node = single('<blockquote><p>Quote text</p></blockquote>')
-    expect(node.moduleId).toBe('base.container')
-    expect(node.props.tag).toBe('custom')
-    expect(node.props.customTag).toBe('blockquote')
+    expect(node.moduleId).toBe('')
+    expect(node.tag).toBe('blockquote')
   })
 
   it('<figure> recurses into children', () => {
@@ -597,17 +594,15 @@ describe('base.container — custom tag (NOT in BUILTIN_HTML_TAGS)', () => {
     expect(imgNode.moduleId).toBe('base.image')
 
     const captionNode = result.nodes[figNode.children[1]!]!
-    expect(captionNode.moduleId).toBe('base.container')
-    expect(captionNode.props.tag).toBe('custom')
-    expect(captionNode.props.customTag).toBe('figcaption')
+    expect(captionNode.moduleId).toBe('')
+    expect(captionNode.tag).toBe('figcaption')
   })
 
-  it('<li> → base.container tag:"custom", customTag:"li"', () => {
+  it('<li> → DOM-native node with tag "li"', () => {
     // li is not in BUILTIN_HTML_TAGS — only reachable via catch-all (or from ul/ol)
     const node = single('<li>Item</li>')
-    expect(node.moduleId).toBe('base.container')
-    expect(node.props.tag).toBe('custom')
-    expect(node.props.customTag).toBe('li')
+    expect(node.moduleId).toBe('')
+    expect(node.tag).toBe('li')
   })
 })
 
@@ -696,36 +691,32 @@ describe('void elements — childless base.container with customTag', () => {
 })
 
 // ---------------------------------------------------------------------------
-// 9. Catch-all: exotic tags → base.container with tag:"custom"
+// 9. Catch-all: exotic tags → DOM-native nodes
 // ---------------------------------------------------------------------------
 
 describe('catch-all guarantee — exotic / unknown tags', () => {
-  it('<dialog> → base.container tag:"custom", customTag:"dialog"', () => {
+  it('<dialog> → DOM-native node with tag "dialog"', () => {
     const node = single('<dialog></dialog>')
-    expect(node.moduleId).toBe('base.container')
-    expect(node.props.tag).toBe('custom')
-    expect(node.props.customTag).toBe('dialog')
+    expect(node.moduleId).toBe('')
+    expect(node.tag).toBe('dialog')
   })
 
-  it('<table> → base.container tag:"custom", customTag:"table"', () => {
+  it('<table> → DOM-native node with tag "table"', () => {
     const node = single('<table></table>')
-    expect(node.moduleId).toBe('base.container')
-    expect(node.props.tag).toBe('custom')
-    expect(node.props.customTag).toBe('table')
+    expect(node.moduleId).toBe('')
+    expect(node.tag).toBe('table')
   })
 
-  it('<details> → base.container tag:"custom", customTag:"details"', () => {
+  it('<details> → DOM-native node with tag "details"', () => {
     const node = single('<details></details>')
-    expect(node.moduleId).toBe('base.container')
-    expect(node.props.tag).toBe('custom')
-    expect(node.props.customTag).toBe('details')
+    expect(node.moduleId).toBe('')
+    expect(node.tag).toBe('details')
   })
 
-  it('<address> → base.container tag:"custom", customTag:"address"', () => {
+  it('<address> → DOM-native node with tag "address"', () => {
     const node = single('<address></address>')
-    expect(node.moduleId).toBe('base.container')
-    expect(node.props.tag).toBe('custom')
-    expect(node.props.customTag).toBe('address')
+    expect(node.moduleId).toBe('')
+    expect(node.tag).toBe('address')
   })
 
   it('every element produces exactly one node (no falls-through)', () => {
@@ -735,8 +726,8 @@ describe('catch-all guarantee — exotic / unknown tags', () => {
     for (const id of result.rootIds) {
       const node = result.nodes[id]!
       expect(node).toBeDefined()
-      expect(node.moduleId).toBe('base.container')
-      expect(node.props.tag).toBe('custom')
+      expect(node.moduleId).toBe('')
+      expect(node.tag).toBeDefined()
     }
   })
 
@@ -744,6 +735,7 @@ describe('catch-all guarantee — exotic / unknown tags', () => {
     const result = imported('<wbr></wbr>')
     expect(result.rootIds).toHaveLength(1)
     const node = result.nodes[result.rootIds[0]!]!
+    // <wbr> is a void element — matched by the void rule, not the catch-all
     expect(node.moduleId).toBe('base.container')
     expect(node.props.tag).toBe('custom')
     expect(node.props.customTag).toBe('wbr')
@@ -1043,9 +1035,8 @@ describe('nested structure — parent/child IDs in document order', () => {
 
     for (const childId of ulNode.children) {
       const liNode = result.nodes[childId]!
-      expect(liNode.moduleId).toBe('base.container')
-      expect(liNode.props.tag).toBe('custom')
-      expect(liNode.props.customTag).toBe('li')
+      expect(liNode.moduleId).toBe('')
+      expect(liNode.tag).toBe('li')
     }
   })
 
@@ -1064,8 +1055,8 @@ describe('nested structure — parent/child IDs in document order', () => {
 
     const liId = ulNode.children[0]!
     const liNode = result.nodes[liId]!
-    expect(liNode.props.tag).toBe('custom')
-    expect(liNode.props.customTag).toBe('li')
+    expect(liNode.moduleId).toBe('')
+    expect(liNode.tag).toBe('li')
 
     const aId = liNode.children[0]!
     const aNode = result.nodes[aId]!
@@ -1129,11 +1120,12 @@ describe('direct text in containers → synthesized no-wrapper base.text', () =>
     expect(textNode.props.text).toBe('98%')
   })
 
-  it('text-only <li> → container with a no-wrapper text child (no longer empty)', () => {
+  it('text-only <li> → DOM-native node with a no-wrapper text child (no longer empty)', () => {
     const result = imported('<ul><li>Buy milk</li></ul>')
     const ulNode = result.nodes[result.rootIds[0]!]!
     const liNode = result.nodes[ulNode.children[0]!]!
-    expect(liNode.props.customTag).toBe('li')
+    expect(liNode.moduleId).toBe('')
+    expect(liNode.tag).toBe('li')
     expect(liNode.children).toHaveLength(1)
     expect(result.nodes[liNode.children[0]!]!.props.text).toBe('Buy milk')
   })

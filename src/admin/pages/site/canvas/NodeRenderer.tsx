@@ -23,7 +23,7 @@ import { memo, use, useLayoutEffect, useRef, useSyncExternalStore } from 'react'
 import type { InlineEditBinding } from '@core/module-engine'
 import { readInlineEditableText, seedInlineEditableContent } from '@modules/base/shared/inlineText'
 import { useEditorStore, selectActiveCanvasPage } from '@site/store/store'
-import { resolveProps } from '@core/page-tree'
+import { resolveProps, isDomNode } from '@core/page-tree'
 import { registry } from '@core/module-engine'
 import type { NodeWrapperProps as NodeWrapperPropsType } from '@core/module-engine'
 import { resolveDynamicProps, effectiveNodeBindings, type TemplateRenderDataContext } from '@core/templates/dynamicBindings'
@@ -41,6 +41,7 @@ import { bagToReactStyle } from '@core/publisher'
 import { getCanvasNodeClassIds, getCanvasNodeClassName } from './canvasNodeClassName'
 import { findEnclosingComponentRef, type AnnotatedPageNode } from './canvasSelectionUtils'
 import { useLoopPreviewItems } from './useLoopPreviewItems'
+import { DomNodeRenderer } from './DomNodeRenderer'
 import styles from './NodeRenderer.module.css'
 
 // ---------------------------------------------------------------------------
@@ -196,6 +197,12 @@ export const NodeRenderer = memo(function NodeRenderer({ nodeId }: NodeRendererP
 
   if (!node) return null
   if (node.hidden) return null
+
+  // DOM-native nodes (no moduleId, has tag) — delegate to DomNodeRenderer
+  // which renders them as real React elements without a module component.
+  if (isDomNode(node)) {
+    return <DomNodeRenderer nodeId={nodeId} />
+  }
 
   const definition = registry.get(node.moduleId)
   if (!definition) {

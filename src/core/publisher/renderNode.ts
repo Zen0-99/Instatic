@@ -35,6 +35,7 @@ import { renderVisualComponentRef } from './renderVisualComponentRef'
 import { renderLoop } from './renderLoop'
 import { resolveAutoSizes } from './sizesResolver'
 import { sanitizeRichtext } from '@core/sanitize'
+import { isDomNode, VOID_HTML_ELEMENTS } from '@core/page-tree'
 import type {
   RenderConfig,
   RenderAccumulators,
@@ -161,6 +162,15 @@ function renderStandardNode(
   attachResolvedMediaByKey(safeProps, def, validatedProps, config.mediaAssets)
   attachResolvedAutoSizes(safeProps, def, node, config)
 
+  // Legacy modules still use render(); migrated modules use htmlContract and
+  // never reach this path (unified nodes are handled by renderDomNode). The
+  // null guard is a type-safety net during the migration transition.
+  if (!def.render) {
+    throw new Error(
+      `[publisher] Module "${node.moduleId}" has no render() and no htmlContract path was taken. ` +
+        `This should be unreachable — unified nodes are handled by renderDomNode.`,
+    )
+  }
   const output = def.render(safeProps as never, renderedChildren)
 
   // CSS dedup — one entry per moduleId. Sanitize before storage to neutralise
@@ -241,6 +251,61 @@ type SpecialRenderer = (
   renderNode: RenderNodeFn,
 ) => string
 
+// ---------------------------------------------------------------------------
+// DOM-native node rendering
+// ---------------------------------------------------------------------------
+
+/**
+ * Render a DOM-native node — one that stores actual HTML structure (`tag`,
+ * `attributes`, `textContent`) instead of module props.
+ *
+ * The tag and attributes are serialised directly to HTML. `classIds` from the
+ * site's style registry are injected onto the root element (same as the
+ * module path), merged with any `class` attribute already in `attributes`.
+ * `inlineStyles` are injected as a `style` attribute. `textContent` is
+ * HTML-escaped and used as the element's inner content when the node has no
+ * element children.
+ *
+ * Void elements (`br`, `img`, `input`, etc.) emit no closing tag and no
+ * inner content.
+ */
+function renderDomNode(
+  node: PageNode,
+  config: RenderConfig,
+  acc: RenderAccumulators,
+): string {
+  const tag = node.tag!
+
+  // Build attribute string from node.attributes (values are HTML-escaped)
+  const attrParts: string[] = []
+  if (node.attributes) {
+    for (const [key, value] of Object.entries(node.attributes)) {
+      attrParts.push(`${key}="${escapeHtml(value)}"`)
+    }
+  }
+  const attrStr = attrParts.length > 0 ? ' ' + attrParts.join(' ') : ''
+
+  // Void elements: self-closing, no inner content
+  if (VOID_HTML_ELEMENTS.has(tag)) {
+    let html = `<${tag}${attrStr}>`
+    html = injectNodeClassIds(html, node.classIds, config.site)
+    html = injectNodeInlineStyles(html, node.inlineStyles)
+    return config.annotateNodeIds ? injectNodeId(html, node.id) : html
+  }
+
+  // Render children recursively. When the node has element children, they
+  // become the inner content. When it has no children, textContent is used.
+  const hasChildren = (node.children ?? []).length > 0
+  const innerHtml = hasChildren
+    ? (node.children ?? []).map((childId) => renderNode(childId, config, acc)).join('')
+    : (node.textContent !== undefined ? escapeHtml(node.textContent) : '')
+
+  let html = `<${tag}${attrStr}>${innerHtml}</${tag}>`
+  html = injectNodeClassIds(html, node.classIds, config.site)
+  html = injectNodeInlineStyles(html, node.inlineStyles)
+  return config.annotateNodeIds ? injectNodeId(html, node.id) : html
+}
+
 /**
  * Publisher-side specialised-renderer IMPLEMENTATIONS, keyed by moduleId. Each
  * replaces the entire "render children → resolve props → call render() → inject
@@ -302,6 +367,12 @@ export function renderNode(
   const node = config.page.nodes[nodeId]
   if (!node) return ''
   if (node.hidden) return ''
+
+  // DOM-native nodes (no moduleId, has tag) are serialised directly to HTML
+  // without going through the module registry or render() pipeline.
+  if (isDomNode(node)) {
+    return renderDomNode(node, config, acc)
+  }
 
   const def = config.registry.get(node.moduleId)
   if (!def) {

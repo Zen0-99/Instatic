@@ -61,6 +61,47 @@ export function createNode(
   }
 }
 
+/**
+ * Create a DOM-native node — one that stores actual HTML structure (`tag`,
+ * `attributes`, `textContent`) instead of module props. The publisher
+ * serialises these directly to HTML without calling a module `render()`.
+ *
+ * Either `textContent` (leaf text node) or `children` (element children) is
+ * valid, but not both — `textContent` is only for leaf nodes.
+ *
+ * When `moduleOverlay` is provided, the node carries BOTH the canonical HTML
+ * structure AND a module reference for structured editing UX. The overlay's
+ * `moduleId` is the real module; the top-level `moduleId` stays empty so
+ * `isDomNode()` returns true and the publisher/canvas treat it as a
+ * DOM-native node that happens to have an overlay.
+ */
+export function createDomNode(
+  tag: string,
+  options: {
+    attributes?: Record<string, string>
+    textContent?: string
+    classIds?: string[]
+    inlineStyles?: Record<string, unknown>
+    moduleOverlay?: { moduleId: string; props: Record<string, unknown> }
+  } = {},
+): PageNode {
+  const node: PageNode = {
+    id: nanoid(),
+    moduleId: '',
+    tag,
+    props: {},
+    breakpointOverrides: {},
+    children: [],
+    classIds: options.classIds ?? [],
+    parentId: null,
+  }
+  if (options.attributes) node.attributes = { ...options.attributes }
+  if (options.textContent !== undefined) node.textContent = options.textContent
+  if (options.inlineStyles) node.inlineStyles = { ...options.inlineStyles }
+  if (options.moduleOverlay) node.moduleOverlay = { ...options.moduleOverlay }
+  return node
+}
+
 // ---------------------------------------------------------------------------
 // Node insertion
 // ---------------------------------------------------------------------------

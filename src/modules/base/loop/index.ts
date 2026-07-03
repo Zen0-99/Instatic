@@ -79,6 +79,17 @@ export const LoopModule: ModuleDefinition<LoopProps> = {
 
   htmlTag: (props) => resolveHtmlTag(props.tag, props.customTag),
 
+  htmlContract: {
+    tag: (props) => resolveHtmlTag(props.tag, props.customTag),
+    canHaveChildren: true,
+    claimSelector: 'instatic-loop',
+    fromHtml: (el) => ({
+      tag: 'custom',
+      customTag: el.tagName.toLowerCase(),
+      sourceId: el.getAttribute('data-source-id') ?? '',
+    }),
+  },
+
   /**
    * Defense-in-depth fallback: the publisher walker intercepts base.loop
    * nodes via `renderLoop()` in `render.ts` before this method is ever

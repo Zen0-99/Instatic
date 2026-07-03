@@ -112,6 +112,7 @@ export type { NodeTree } from './treeSchema'
 
 export {
   createNode,
+  createDomNode,
   insertNode,
   deleteNode,
   updateNodeProps,
@@ -174,6 +175,7 @@ export {
 } from './classUtils'
 
 export { getNodeDisplayName, getNodeHtmlTag, getNodeClassNames } from './nodeDisplayName'
+export { isDomNode, VOID_HTML_ELEMENTS, domCanHaveChildren } from './baseNode'
 
 export { resolvePageTreeDropTarget } from './dnd'
 export type { PageTreeDropPosition, PageTreeDropTarget } from './dnd'

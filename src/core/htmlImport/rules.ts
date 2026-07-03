@@ -21,11 +21,29 @@
 import { normalizeImportedText } from './text'
 import { normalizeIdentifierValue } from '@core/utils/identifier'
 
+/**
+ * Result of mapping an element to a node spec.
+ *
+ * - `moduleId` is non-empty → module-based node (props passed to createNode).
+ * - `moduleId` is empty string → DOM-native node. `tag` / `attributes` /
+ *   `textContent` are used by createDomNode instead of module props.
+ */
+export interface ImportRuleResult {
+  moduleId: string
+  props?: Record<string, unknown>
+  /** DOM-native tag name (used when moduleId is empty). */
+  tag?: string
+  /** DOM-native HTML attributes (used when moduleId is empty). */
+  attributes?: Record<string, string>
+  /** DOM-native leaf text content (used when moduleId is empty). */
+  textContent?: string
+}
+
 export interface ImportRule {
   /** CSS selector tested via `el.matches()`. */
   match: string
-  /** Returns the moduleId and props for this element. */
-  map: (el: Element) => { moduleId: string; props: Record<string, unknown> }
+  /** Returns the node spec for this element. */
+  map: (el: Element) => ImportRuleResult
   /**
    * When truthy the walker recurses into the element's children and sets
    * `node.children` to their IDs. Leaf modules (text, image, button) omit
@@ -544,15 +562,17 @@ export const HTML_TO_MODULE_RULES: ImportRule[] = [
     recurse: false,
   },
 
-  // Catch-all for every other tag (li, figure, blockquote, form, table,
-  // dialog, …). MUST use tag:'custom' + customTag so resolveHtmlTag
-  // emits the real element name — tag:'div' + customTag would render <div>.
-  // RECURSE.
+  // Catch-all for every other tag (li, figure, blockquote, table, dialog,
+  // mark, time, abbr, details, summary, …). These elements have no dedicated
+  // module — map them to DOM-native nodes (empty moduleId + tag) so the
+  // publisher serialises them directly to HTML without a module render()
+  // intermediary. The walker still recurses into children, which themselves
+  // become DOM-native or module nodes depending on their own tag.
   {
     match: '*',
     map: (el) => ({
-      moduleId: 'base.container',
-      props: { tag: 'custom', customTag: el.tagName.toLowerCase() },
+      moduleId: '',
+      tag: el.tagName.toLowerCase(),
     }),
     recurse: true,
   },

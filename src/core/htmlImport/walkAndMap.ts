@@ -34,7 +34,7 @@
  */
 
 import type { PageNode } from '@core/page-tree'
-import { createNode } from '@core/page-tree'
+import { createNode, createDomNode } from '@core/page-tree'
 import { registry } from '@core/module-engine'
 import {
   isRenderableHtmlAttributeName,
@@ -166,6 +166,27 @@ function collectElementProps(el: Element, moduleId?: string): Record<string, unk
   return props
 }
 
+/**
+ * Collect safe HTML attributes for a DOM-native node. Unlike module nodes
+ * (which store authored attrs in `props.htmlAttributes`), DOM-native nodes
+ * store them directly in `node.attributes`. `class` and `style` are excluded
+ * — they're handled by `classIds` and `inlineStyles` respectively.
+ */
+function collectDomAttributes(
+  el: Element,
+  extra?: Record<string, string>,
+): Record<string, string> {
+  const attrs: Record<string, string> = { ...(extra ?? {}) }
+  for (const attr of Array.from(el.attributes)) {
+    const name = normalizeHtmlAttributeName(attr.name)
+    if (name === 'class' || name === 'style') continue
+    if (!isRenderableHtmlAttributeName(name)) continue
+    if (name in attrs) continue
+    attrs[name] = attr.value
+  }
+  return attrs
+}
+
 function collectBodyAttributes(
   body: HTMLElement,
   inlineStyles: Map<Element, Record<string, string>>,
@@ -281,16 +302,28 @@ function mapChildNodes(parent: Element, ctx: WalkContext): string[] {
  */
 function processElement(el: Element, ctx: WalkContext): string {
   const rule = matchRule(el)
-  const { moduleId, props: ruleProps } = rule.map(el)
-  const props = { ...ruleProps }
-  if (HTML_ATTRIBUTE_MODULES.has(moduleId)) {
-    Object.assign(props, collectElementProps(el, moduleId))
-  }
+  const result = rule.map(el)
+  const isDom = !result.moduleId
 
-  // Merge module defaults with rule-specific props so every node starts
-  // from a well-formed baseline.
-  const def = registry.getOrThrow(moduleId)
-  const node = createNode(moduleId, { ...def.defaults, ...props })
+  let node: PageNode
+
+  if (isDom) {
+    // DOM-native node — collect safe HTML attributes directly onto the node.
+    const attributes = collectDomAttributes(el, result.attributes)
+    node = createDomNode(result.tag ?? el.tagName.toLowerCase(), {
+      attributes: Object.keys(attributes).length > 0 ? attributes : undefined,
+      textContent: result.textContent,
+    })
+  } else {
+    // Module-based node — existing logic.
+    const moduleId = result.moduleId
+    const props = { ...(result.props ?? {}) }
+    if (HTML_ATTRIBUTE_MODULES.has(moduleId)) {
+      Object.assign(props, collectElementProps(el, moduleId))
+    }
+    const def = registry.getOrThrow(moduleId)
+    node = createNode(moduleId, { ...def.defaults, ...props })
+  }
 
   // Preserve element class *names* verbatim. This layer is registry-agnostic
   // (it has no SiteDocument), so it cannot mint real class ids here. The store
@@ -323,7 +356,7 @@ function processElement(el: Element, ctx: WalkContext): string {
     // `text` in its rule and recurses on element children (e.g. a `<a>` wrapping
     // tokens/spans) double-represents its content — ambiguous and can
     // double-render. Mirrors the conditional heading/label rules.
-    if (node.children.length > 0 && 'text' in node.props) {
+    if (node.children.length > 0 && !isDom && 'text' in (node.props as Record<string, unknown>)) {
       delete (node.props as Record<string, unknown>).text
     }
   }

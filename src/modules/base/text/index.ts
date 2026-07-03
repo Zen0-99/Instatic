@@ -11,6 +11,7 @@ import { Value } from '@core/utils/typeboxHelpers'
 import {
   htmlAttributesAttr,
   htmlAttributesControl,
+  htmlAttributesForReact,
 } from '@modules/base/shared/htmlAttributes'
 import { textToBreakHtml } from '@modules/base/shared/inlineText'
 import { TextEditor } from './TextEditor'
@@ -65,6 +66,25 @@ export const TextModule: ModuleDefinition<TextStoredProps> = {
   htmlTag: (props) => {
     const tag = normalizeTag(props.tag)
     return tag === 'none' ? null : tag
+  },
+
+  htmlContract: {
+    tag: (props) => {
+      const tag = normalizeTag(props.tag)
+      return tag === 'none' ? 'span' : tag
+    },
+    attributes: (props) => htmlAttributesForReact(props.htmlAttributes),
+    textContent: (props) => String(props.text ?? ''),
+    claimSelector: 'h1, h2, h3, h4, h5, h6, p, span, small, strong, em',
+    canHaveChildren: false,
+    fromHtml: (el) => {
+      const tag = el.tagName.toLowerCase()
+      const knownTags = new Set(['p', 'h1', 'h2', 'h3', 'h4', 'h5', 'h6', 'span', 'div', 'small', 'strong', 'em'])
+      return {
+        text: el.textContent ?? '',
+        tag: knownTags.has(tag) ? (tag as TextStoredProps['tag']) : 'div',
+      }
+    },
   },
 
   render: (props) => {
