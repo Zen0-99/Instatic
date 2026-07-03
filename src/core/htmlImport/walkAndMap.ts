@@ -39,8 +39,8 @@ import type { PageNode } from '@core/page-tree'
 import { createNode, createDomNode } from '@core/page-tree'
 import { registry } from '@core/module-engine'
 import {
-  isRenderableHtmlAttributeName,
   normalizeHtmlAttributeName,
+  sanitizeRenderableHtmlAttribute,
 } from '@core/htmlAttributes'
 import { normalizeImportedText } from './text'
 import { parseHtml } from './parseHtml'
@@ -125,9 +125,10 @@ function collectDomAttributes(
   for (const attr of Array.from(el.attributes)) {
     const name = normalizeHtmlAttributeName(attr.name)
     if (name === 'class' || name === 'style') continue
-    if (!isRenderableHtmlAttributeName(name)) continue
     if (name in attrs) continue
-    attrs[name] = attr.value
+    const safeValue = sanitizeRenderableHtmlAttribute(name, attr.value)
+    if (safeValue === null) continue
+    attrs[name] = safeValue
   }
   return attrs
 }
