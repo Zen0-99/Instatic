@@ -232,22 +232,16 @@ log('')
 
 // --- spawn cms + vite -----------------------------------------------------
 
-// On Windows, `bun` and `vite` resolve to .cmd/.ps1 shims that uv_spawn
-// can't find directly. Use process.execPath (the real bun.exe) for bun
-// commands, and `bunx` (also via execPath) for vite. On non-Windows the
-// shims aren't an issue so we keep the plain command names.
-const BUN_EXE = process.execPath
-
 interface DevProcess {
   name: string
-  args: string[]
+  command: string
   env?: Record<string, string>
 }
 
 const processes: DevProcess[] = [
   {
     name: 'cms',
-    args: ['--watch', 'server/index.ts'],
+    command: 'bun --watch server/index.ts',
     env: {
       PORT: String(CMS_PORT),
       DATABASE_URL,
@@ -257,7 +251,7 @@ const processes: DevProcess[] = [
   },
   {
     name: 'vite',
-    args: ['x', 'vite', '--host', '127.0.0.1', '--port', String(VITE_PORT), '--strictPort'],
+    command: `vite --host 127.0.0.1 --port ${VITE_PORT} --strictPort`,
   },
 ]
 
@@ -271,7 +265,9 @@ function stopChildren(signal: NodeJS.Signals = 'SIGTERM'): void {
 }
 
 for (const cfg of processes) {
-  const child = Bun.spawn([BUN_EXE, ...cfg.args], {
+  const args = cfg.command.split(' ')
+  if (args[0] === 'bun') args[0] = process.execPath
+  const child = Bun.spawn(args, {
     env: { ...process.env, ...cfg.env },
     stdin: 'inherit',
     stdout: 'inherit',
