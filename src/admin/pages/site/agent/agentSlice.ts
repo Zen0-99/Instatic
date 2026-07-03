@@ -126,6 +126,7 @@ type ConversationResetKeys =
   | 'agentActiveModelId'
   | 'agentContextTokens'
   | 'agentDraftMentions'
+  | 'agentMentionLabels'
 
 function conversationResetState(): Pick<AgentSlice, ConversationResetKeys> {
   return {
@@ -136,6 +137,7 @@ function conversationResetState(): Pick<AgentSlice, ConversationResetKeys> {
     agentActiveModelId: null,
     agentContextTokens: null,
     agentDraftMentions: [],
+    agentMentionLabels: {},
   }
 }
 
@@ -246,6 +248,7 @@ export function createAgentSlice(
     agentConversations: [],
     agentContextTokens: null,
     agentDraftMentions: [],
+    agentMentionLabels: {},
 
     // ── UI actions ───────────────────────────────────────────────────────────
     openAgent() {
@@ -265,6 +268,9 @@ export function createAgentSlice(
     stageAgentMentions(mentions) {
       set((state) => {
         state.agentDraftMentions.push(...mentions)
+        for (const m of mentions) {
+          state.agentMentionLabels[m.nodeId] = m.label
+        }
         state.isAgentOpen = true
       })
     },
@@ -429,6 +435,10 @@ export function createAgentSlice(
         state.agentMessages.push(assistantMsg)
         state.agentError = null
         state.isAgentStreaming = true
+        // Register mention labels so they survive node deletion
+        for (const m of mentions ?? []) {
+          state.agentMentionLabels[m.nodeId] = m.label
+        }
       })
 
       _abortController = new AbortController()
@@ -451,7 +461,21 @@ export function createAgentSlice(
           return
         }
 
-        const body: AgentRequestBody = { conversationId, prompt: content, snapshot }
+        // Build machine-readable prompt: replace human mention labels with
+        // Layer <nodeId> so the AI knows these are layer references.
+        let machinePrompt = content
+        for (const mention of mentions ?? []) {
+          machinePrompt = machinePrompt.replace(mention.label, `Layer ${mention.nodeId}`)
+        }
+
+        // Instruct the AI to respond with the same Layer <nodeId> format
+        // so the UI can render them as clickable mention pills.
+        const hasMentions = (mentions ?? []).length > 0
+        const instruction = hasMentions
+          ? `Write layer references exactly as: the word Layer, a space, then the raw id with no extra characters. Example: Layer b3zJlOcL1. Never wrap ids in angle brackets or backticks.\n\n`
+          : ''
+
+        const body: AgentRequestBody = { conversationId, prompt: instruction + machinePrompt, snapshot }
         const res = await fetch(`/admin/api/ai/chat/${config.scope}`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },

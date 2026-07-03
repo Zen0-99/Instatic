@@ -8,6 +8,8 @@ import { memo, useCallback } from 'react'
 import { useEditorStore } from '@site/store/store'
 import { renderMarkdownToHtml } from '@site/agent'
 import { cn } from '@ui/cn'
+import { pillAccent, pillAccentVar } from '@ui/pillAccent'
+import { getMentionLabelForNode } from '@site/agent/mentionLabel'
 import type { AgentMessageMention } from '@site/agent'
 import styles from './AgentPanel.module.css'
 
@@ -17,7 +19,13 @@ interface RichTextBubbleProps {
   mentions?: AgentMessageMention[]
 }
 
-const MENTION_RE = /\bLayer(s?)\s+([A-Za-z0-9_-]+(?:,\s*[A-Za-z0-9_-]+)*)\b/g
+/**
+ * Matches layer references like "Layer abc123", "Module <abc123>",
+ * "Elements \`def456\`, \`ghi789\`", etc. Accepts multiple prefix words
+ * (Layer, Module, Element, Node, Section, Component) with optional plural
+ * 's' and optional angle-brackets or backticks around each id.
+ */
+const MENTION_RE = /\b(?:Layer|Module|Element|Node|Section|Component)s?\s+((?:<|`|`)?[A-Za-z0-9_-]+(?:>|`|\`)?(?:,\s*(?:<|`|\`)?[A-Za-z0-9_-]+(?:>|`|\`)?)*)/gi
 
 function useNodeSelector() {
   const selectNode = useCallback(
@@ -35,10 +43,17 @@ function useNodeSelector() {
 
 function MentionPill({ label, nodeId }: { label: string; nodeId: string }) {
   const selectNode = useNodeSelector()
+  let colorKey = nodeId
+  try {
+    colorKey = getMentionLabelForNode(nodeId).colorKey
+  } catch {
+    // Node deleted — fall back to nodeId for color generation
+  }
   return (
     <span
       className={styles.mentionPill}
       data-node-id={nodeId}
+      style={{ color: pillAccentVar(pillAccent(colorKey)) }}
       onClick={(e) => {
         e.stopPropagation()
         selectNode(nodeId)
@@ -101,15 +116,18 @@ function renderWithScannedMentions(text: string): React.ReactNode[] {
   const segments: React.ReactNode[] = []
   let lastIndex = 0
 
-  // Get current page node ids for validation
+  // Get current page node ids for validation + mention label registry
   let validNodeIds: Set<string> | null = null
+  let mentionLabels: Record<string, string> = {}
   try {
-    const site = useEditorStore.getState().site
-    const activePageId = useEditorStore.getState().activePageId
+    const state = useEditorStore.getState()
+    const site = state.site
+    const activePageId = state.activePageId
     const page = site?.pages.find((p) => p.id === activePageId)
     if (page?.nodes) {
       validNodeIds = new Set(Object.keys(page.nodes))
     }
+    mentionLabels = state.agentMentionLabels ?? {}
   } catch {
     // No editor store available (content workspace)
   }
@@ -117,9 +135,15 @@ function renderWithScannedMentions(text: string): React.ReactNode[] {
   let match: RegExpExecArray | null
   MENTION_RE.lastIndex = 0
   while ((match = MENTION_RE.exec(text)) !== null) {
-    const [fullMatch, plural, idsStr] = match
+    const [fullMatch, idsStr] = match
     const start = match.index
-    const ids = idsStr.split(',').map((s) => s.trim())
+    const ids = idsStr
+      .split(',')
+      .map((s) => s.trim().replace(/^[<`\`]+|[>`\`]+$/g, ''))
+
+    // Preserve the original prefix word (Layer, Module, Node, etc.)
+    const prefixMatch = fullMatch.match(/^\S+/)
+    const prefix = prefixMatch ? prefixMatch[0] : 'Layer'
 
     // Push plain text before the match
     if (start > lastIndex) {
@@ -128,21 +152,34 @@ function renderWithScannedMentions(text: string): React.ReactNode[] {
       )
     }
 
-    // Render each id as a pill if it looks valid
+    // Render each id as a pill with a human-readable label if it looks valid
     const pills: React.ReactNode[] = []
     ids.forEach((id, i) => {
+      const cachedLabel = mentionLabels[id]
       const isValid = !validNodeIds || validNodeIds.has(id)
-      if (isValid) {
+      if (cachedLabel) {
+        // Known from registry (may be deleted) — render as pill
         pills.push(
           <MentionPill
             key={`m-${id}-${segments.length}-${i}`}
             nodeId={id}
-            label={`Layer ${id}`}
+            label={cachedLabel}
+          />,
+        )
+      } else if (isValid) {
+        // Still exists in page — resolve fresh
+        const { label } = getMentionLabelForNode(id)
+        pills.push(
+          <MentionPill
+            key={`m-${id}-${segments.length}-${i}`}
+            nodeId={id}
+            label={label}
           />,
         )
       } else {
+        // Unknown deleted node — plain text fallback
         pills.push(
-          <span key={`m-${id}-${segments.length}-${i}`}>Layer {id}</span>,
+          <span key={`m-${id}-${segments.length}-${i}`}>{prefix} {id}</span>,
         )
       }
       if (i < ids.length - 1) {
@@ -150,26 +187,12 @@ function renderWithScannedMentions(text: string): React.ReactNode[] {
       }
     })
 
-    // Wrap the group with the "Layers" prefix if plural
-    if (plural && ids.length > 1) {
-      segments.push(
-        <span key={`g-${segments.length}`}>
-          Layers {pills}
-        </span>,
-      )
-    } else if (plural && ids.length === 1) {
-      segments.push(
-        <span key={`g-${segments.length}`}>
-          Layers {pills}
-        </span>,
-      )
-    } else {
-      segments.push(
-        <span key={`g-${segments.length}`}>
-          Layer {pills}
-        </span>,
-      )
-    }
+    // Preserve the original prefix word in the rendered output
+    segments.push(
+      <span key={`g-${segments.length}`}>
+        {prefix} {pills}
+      </span>,
+    )
 
     lastIndex = start + fullMatch.length
   }
