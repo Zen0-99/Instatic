@@ -21,6 +21,7 @@
  * ~60–80% on typical pages.
  */
 
+import type { PropertySchema } from '@core/module-engine-schema'
 import type { PageNode } from '@core/page-tree'
 import { isPageRef, resolvePageRef } from '@core/page-tree'
 import type { AnyModuleDefinition } from '@core/module-engine'
@@ -35,7 +36,7 @@ import { renderVisualComponentRef } from './renderVisualComponentRef'
 import { renderLoop } from './renderLoop'
 import { resolveAutoSizes } from './sizesResolver'
 import { sanitizeRichtext } from '@core/sanitize'
-import { isDomNode, VOID_HTML_ELEMENTS } from '@core/page-tree'
+import { VOID_HTML_ELEMENTS } from '@core/page-tree'
 import type {
   RenderConfig,
   RenderAccumulators,
@@ -117,6 +118,59 @@ function attachResolvedAutoSizes(
   if (resolvedSizes) {
     safeProps._resolvedAutoSizes = resolvedSizes
   }
+}
+
+// ---------------------------------------------------------------------------
+// Overlay prop enrichment
+// ---------------------------------------------------------------------------
+
+/**
+ * Resolve effective props for a module overlay, mirroring `resolveProps`
+ * but reading from `node.moduleOverlay.props` instead of `node.props`.
+ */
+function resolveOverlayProps(
+  node: PageNode,
+  breakpointId?: string,
+  schema?: PropertySchema,
+): Record<string, unknown> {
+  const props = node.moduleOverlay?.props ?? {}
+  if (!breakpointId) return props
+  const override = node.breakpointOverrides?.[breakpointId]
+  if (!override || Object.keys(override).length === 0) return props
+  if (!schema) return { ...props, ...override }
+  const filtered: Record<string, unknown> = {}
+  for (const [key, value] of Object.entries(override)) {
+    if (schema[key]?.breakpointOverridable === true) {
+      filtered[key] = value
+    }
+  }
+  if (Object.keys(filtered).length === 0) return props
+  return { ...props, ...filtered }
+}
+
+/**
+ * Run the full prop enrichment pipeline for a module overlay:
+ * breakpoint overrides → dynamic bindings → page ref resolution →
+ * schema validation → escaping → resolved media + auto sizes.
+ * Returns the enriched props ready for htmlContract consumption.
+ */
+function enrichOverlayProps(
+  node: PageNode,
+  def: AnyModuleDefinition,
+  config: RenderConfig,
+): Record<string, unknown> {
+  const effectiveProps = resolveOverlayProps(node, config.breakpointId, def.schema)
+  const dynamicProps = resolveDynamicProps(
+    effectiveProps,
+    effectiveNodeBindings(node),
+    config.templateContext,
+  )
+  const resolvedProps = resolvePageRefProps(dynamicProps, config.site.pages)
+  const validatedProps = validateNodeProps(def, resolvedProps)
+  const safeProps = escapeProps(validatedProps, def.schema)
+  attachResolvedMediaByKey(safeProps, def, validatedProps, config.mediaAssets)
+  attachResolvedAutoSizes(safeProps, def, node, config)
+  return safeProps
 }
 
 /**
@@ -252,36 +306,54 @@ type SpecialRenderer = (
 ) => string
 
 // ---------------------------------------------------------------------------
-// DOM-native node rendering
+// Unified node rendering (DOM-native + overlay)
 // ---------------------------------------------------------------------------
 
 /**
- * Render a DOM-native node — one that stores actual HTML structure (`tag`,
- * `attributes`, `textContent`) instead of module props.
+ * Render a unified node — one that stores canonical HTML fields (`tag`,
+ * `attributes`, `textContent`). This path handles:
  *
- * The tag and attributes are serialised directly to HTML. `classIds` from the
- * site's style registry are injected onto the root element (same as the
- * module path), merged with any `class` attribute already in `attributes`.
- * `inlineStyles` are injected as a `style` attribute. `textContent` is
- * HTML-escaped and used as the element's inner content when the node has no
- * element children.
+ *   - Pure DOM-native nodes (no moduleOverlay)
+ *   - Unified nodes that carry a `moduleOverlay` — contract-derived
+ *     attributes and textContent are merged on top of stored HTML fields.
  *
- * Void elements (`br`, `img`, `input`, etc.) emit no closing tag and no
- * inner content.
+ * When `moduleOverlay` is present, `htmlContract.attributes(props)` is called
+ * with enriched props (breakpoint overrides, dynamic bindings, page refs,
+ * validated, escaped, plus resolved media / auto sizes). Module-declared
+ * attribute keys win; unknown/preserved node-stored attrs stay.
+ *
+ * Void elements emit no closing tag. `classIds`, `inlineStyles`, and optional
+ * node-id annotation are injected exactly as in the legacy module path.
  */
-function renderDomNode(
+function renderUnifiedNode(
   node: PageNode,
   config: RenderConfig,
   acc: RenderAccumulators,
 ): string {
   const tag = node.tag!
 
-  // Build attribute string from node.attributes (values are HTML-escaped)
-  const attrParts: string[] = []
-  if (node.attributes) {
-    for (const [key, value] of Object.entries(node.attributes)) {
-      attrParts.push(`${key}="${escapeHtml(value)}"`)
+  // Build attribute map from stored node.attributes
+  let attrs: Record<string, string> = { ...node.attributes }
+
+  // If a module overlay exists, merge contract-derived attributes
+  let enrichedProps: Record<string, unknown> | undefined
+  if (node.moduleOverlay) {
+    const overlayDef = config.registry.get(node.moduleOverlay.moduleId)
+    if (overlayDef) {
+      enrichedProps = enrichOverlayProps(node, overlayDef, config)
+      if (overlayDef.htmlContract?.attributes) {
+        const contractAttrs = overlayDef.htmlContract.attributes(enrichedProps as never)
+        for (const [key, value] of Object.entries(contractAttrs)) {
+          attrs[key] = value
+        }
+      }
     }
+  }
+
+  // Build attribute string
+  const attrParts: string[] = []
+  for (const [key, value] of Object.entries(attrs)) {
+    attrParts.push(`${key}="${escapeHtml(value)}"`)
   }
   const attrStr = attrParts.length > 0 ? ' ' + attrParts.join(' ') : ''
 
@@ -293,12 +365,23 @@ function renderDomNode(
     return config.annotateNodeIds ? injectNodeId(html, node.id) : html
   }
 
-  // Render children recursively. When the node has element children, they
-  // become the inner content. When it has no children, textContent is used.
+  // Determine inner content
   const hasChildren = (node.children ?? []).length > 0
-  const innerHtml = hasChildren
-    ? (node.children ?? []).map((childId) => renderNode(childId, config, acc)).join('')
-    : (node.textContent !== undefined ? escapeHtml(node.textContent) : '')
+  let innerHtml: string
+  if (hasChildren) {
+    innerHtml = (node.children ?? [])
+      .map((childId) => renderNode(childId, config, acc))
+      .join('')
+  } else if (node.moduleOverlay && enrichedProps !== undefined) {
+    const overlayDef = config.registry.get(node.moduleOverlay.moduleId)
+    if (overlayDef?.htmlContract?.textContent) {
+      innerHtml = overlayDef.htmlContract.textContent(enrichedProps as never)
+    } else {
+      innerHtml = node.textContent !== undefined ? escapeHtml(node.textContent) : ''
+    }
+  } else {
+    innerHtml = node.textContent !== undefined ? escapeHtml(node.textContent) : ''
+  }
 
   let html = `<${tag}${attrStr}>${innerHtml}</${tag}>`
   html = injectNodeClassIds(html, node.classIds, config.site)
@@ -368,12 +451,14 @@ export function renderNode(
   if (!node) return ''
   if (node.hidden) return ''
 
-  // DOM-native nodes (no moduleId, has tag) are serialised directly to HTML
-  // without going through the module registry or render() pipeline.
-  if (isDomNode(node)) {
-    return renderDomNode(node, config, acc)
+  // Unified path: any node that stores canonical HTML fields (tag) is
+  // serialised directly, regardless of whether it carries a moduleOverlay.
+  if (node.tag) {
+    return renderUnifiedNode(node, config, acc)
   }
 
+  // Legacy path: non-empty moduleId and no tag — lookup the module
+  // definition and dispatch through render() or a special renderer.
   const def = config.registry.get(node.moduleId)
   if (!def) {
     // Unknown module — emit a comment so the page doesn't silently lose content
