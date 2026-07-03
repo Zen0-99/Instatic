@@ -268,8 +268,11 @@ export interface ModuleHtmlContract<TProps extends Record<string, unknown> = Rec
    * The HTML tag this module produces. Either a static string or a function
    * that derives the tag from props (e.g. `base.button` emits `a` when
    * `href` is set, `button` otherwise).
+   *
+   * Omitted for transparent modules (e.g. `base.slot-instance`) and special
+   * modules whose publisher path doesn't emit a standalone wrapper element.
    */
-  tag: string | ((props: TProps) => string)
+  tag?: string | ((props: TProps) => string)
 
   /**
    * Maps prop values to HTML attributes. The publisher merges these
