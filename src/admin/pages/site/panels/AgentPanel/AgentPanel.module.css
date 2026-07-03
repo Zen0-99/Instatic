@@ -160,23 +160,17 @@
 
 /* ── Mention pill ────────────────────────────────────────────────────────── */
 .mentionPill {
-  display: inline-block;
-  padding: 1px 6px;
-  margin: 0 1px;
-  border-radius: var(--radius-sm);
-  background: var(--accent-2-10);
   color: var(--accent-2);
-  font-size: var(--text-s);
-  font-weight: 600;
-  line-height: 1.4;
+  font-weight: 700;
   cursor: pointer;
-  user-select: none;
-  vertical-align: middle;
-  border: 1px solid color-mix(in srgb, var(--accent-2) 25%, transparent);
+  text-decoration: underline;
+  text-decoration-color: color-mix(in srgb, currentColor 35%, transparent);
+  text-underline-offset: 2px;
+  text-decoration-thickness: 1.5px;
 }
 
 .mentionPill:hover {
-  background: color-mix(in srgb, var(--accent-2) 20%, transparent);
+  text-decoration-color: currentColor;
 }
 
 /* The picker takes the leftover width but never crowds out the button. */

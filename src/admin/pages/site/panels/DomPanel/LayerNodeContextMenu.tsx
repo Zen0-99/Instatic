@@ -48,6 +48,7 @@ import { useInsertModule } from '@site/hooks/useInsertModule'
 import { resolveInsertLocation } from '@site/store/insertLocation'
 import { ModulePicker } from '@site/module-picker'
 import { canComponentizeNode } from '@site/componentization'
+import { getMentionLabelForNode } from '@site/agent/mentionLabel'
 import { useConfirmDelete } from '@admin/shared/dialogs/ConfirmDeleteDialog'
 import type { AnyModuleDefinition } from '@core/module-engine'
 import { PenSquareSolidIcon } from 'pixel-art-icons/icons/pen-square-solid'
@@ -321,7 +322,10 @@ export function LayerNodeContextMenu({
 
   const dispatchAddToAiChat = () => {
     if (targetIds.length === 0) return
-    const mentions = targetIds.map((id) => ({ nodeId: id, label: `Layer ${id}` }))
+    const mentions = targetIds.map((id) => {
+      const { label } = getMentionLabelForNode(id)
+      return { nodeId: id, label }
+    })
     useEditorStore.getState().stageAgentMentions(mentions)
     onClose()
   }

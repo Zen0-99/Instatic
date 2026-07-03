@@ -1,13 +1,17 @@
 /**
  * AgentComposer — a contenteditable chat input that supports clickable
- * layer-mention pills. Mentions are rendered as styled inline chips; the
- * rest is plain text. On submit the editor's `innerText` is sent to the AI
- * (mentions serialize as their label text, e.g. "Layer abc123").
+ * layer-mention pills. Mentions render as bold coloured inline text (e.g.
+ * ".icon" or "<header>"). On submit the human text is stored for UI
+ * display, but `sendAgentMessage` replaces each mention label with
+ * "Layer <nodeId>" in the prompt sent to the AI so the model understands
+ * these are layer references and can respond with machine-readable ids.
  */
 import { useRef, useEffect, useCallback } from 'react'
 import { useAgentStore } from '@admin/ai/useAgentStore'
 import { useEditorStore } from '@site/store/store'
 import { cn } from '@ui/cn'
+import { pillAccent, pillAccentVar } from '@ui/pillAccent'
+import { getMentionLabelForNode } from '@site/agent/mentionLabel'
 import styles from './AgentPanel.module.css'
 
 import type { AgentDraftMention } from '@site/agent'
@@ -34,11 +38,13 @@ export function AgentComposer({ placeholder, disabled, onSubmit }: AgentComposer
       sel && sel.rangeCount > 0 && el.contains(sel.getRangeAt(0).commonAncestorContainer)
 
     for (const mention of draftMentions) {
+      const { label, colorKey } = getMentionLabelForNode(mention.nodeId)
       const pill = document.createElement('span')
       pill.className = styles.mentionPill
       pill.dataset.nodeId = mention.nodeId
       pill.contentEditable = 'false'
-      pill.textContent = mention.label
+      pill.textContent = label
+      pill.style.color = pillAccentVar(pillAccent(colorKey))
 
       const space = document.createTextNode('\u00A0')
 
