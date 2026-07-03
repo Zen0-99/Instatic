@@ -15,6 +15,7 @@ import {
   htmlAttributesControl,
   htmlAttributesForReact,
 } from '@modules/base/shared/htmlAttributes'
+import { normalizeImportedText } from '@core/htmlImport'
 import { linkUsesChildren } from './content'
 import { LinkEditor } from './LinkEditor'
 import { LinkPropsSchema, type LinkStoredProps } from './props'
@@ -68,7 +69,7 @@ export const LinkModule: ModuleDefinition<LinkStoredProps> = {
       const target = el.getAttribute('target') ?? '_self'
       return {
         href: el.getAttribute('href') ?? '#',
-        text: el.textContent ?? '',
+        text: normalizeImportedText(el.textContent ?? ''),
         target: (['_self', '_blank', '_parent'].includes(target) ? target : '_self') as LinkStoredProps['target'],
       }
     },

@@ -22,9 +22,9 @@
  */
 
 import type { PropertySchema } from '@core/module-engine-schema'
-import type { PageNode } from '@core/page-tree'
+import type { PageNode, Page, SiteDocument } from '@core/page-tree'
 import { isPageRef, resolvePageRef } from '@core/page-tree'
-import type { AnyModuleDefinition } from '@core/module-engine'
+import type { AnyModuleDefinition, IModuleRegistry } from '@core/module-engine'
 import { validateNodeProps } from '@core/module-engine'
 import { resolveProps } from '@core/page-tree'
 import { resolveDynamicProps, effectiveNodeBindings } from '@core/templates/dynamicBindings'
@@ -259,7 +259,7 @@ function renderStandardNode(
   if (node.moduleId === 'base.body') return output.html
   const withClasses = injectNodeClassIds(output.html, node.classIds, config.site)
   const withStyles = injectNodeInlineStyles(withClasses, node.inlineStyles)
-  return config.annotateNodeIds ? injectNodeId(withStyles, node.id) : withStyles
+  return config.annotateNodeIds && !config.cleanMode ? injectNodeId(withStyles, node.id) : withStyles
 }
 
 /**
@@ -362,7 +362,7 @@ function renderUnifiedNode(
     let html = `<${tag}${attrStr}>`
     html = injectNodeClassIds(html, node.classIds, config.site)
     html = injectNodeInlineStyles(html, node.inlineStyles)
-    return config.annotateNodeIds ? injectNodeId(html, node.id) : html
+    return config.annotateNodeIds && !config.cleanMode ? injectNodeId(html, node.id) : html
   }
 
   // Determine inner content
@@ -386,7 +386,34 @@ function renderUnifiedNode(
   let html = `<${tag}${attrStr}>${innerHtml}</${tag}>`
   html = injectNodeClassIds(html, node.classIds, config.site)
   html = injectNodeInlineStyles(html, node.inlineStyles)
-  return config.annotateNodeIds ? injectNodeId(html, node.id) : html
+  return config.annotateNodeIds && !config.cleanMode ? injectNodeId(html, node.id) : html
+}
+
+/**
+ * Serialize a single node subtree to clean, id-less HTML.
+ * Used by MCP tools and folder-watcher sync.
+ */
+export function serializeNodeHtml(
+  nodeId: string,
+  page: Page,
+  site: SiteDocument,
+  registry: IModuleRegistry,
+): string {
+  const config: RenderConfig = {
+    page,
+    site,
+    registry,
+    breakpointId: undefined,
+    cleanMode: true,
+  }
+  const acc: RenderAccumulators = {
+    cssMap: new Map(),
+    jsMap: new Map(),
+    cspSources: new Map(),
+    infiniteLoopIds: new Set(),
+    holeNodeIds: new Set(),
+  }
+  return renderNode(nodeId, config, acc)
 }
 
 /**

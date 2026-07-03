@@ -138,7 +138,10 @@ export const VideoModule: ModuleDefinition<VideoProps> = {
     claimSelector: 'video',
     canHaveChildren: false,
     fromHtml: (el) => ({
-      videoUrl: el.getAttribute('src') ?? '',
+      videoUrl:
+        el.getAttribute('src')
+        ?? el.querySelector('source')?.getAttribute('src')
+        ?? '',
       poster: el.getAttribute('poster') ?? '',
       preload: (['none', 'metadata', 'auto'].includes(el.getAttribute('preload') ?? '') ? el.getAttribute('preload') : 'metadata') as VideoStoredProps['preload'],
       autoplay: el.hasAttribute('autoplay'),

@@ -1,6 +1,7 @@
 import type { ModuleHtmlContract } from '@core/module-engine'
 import { safeUrl } from '@modules/base/utils/escape'
 import { normalizeIdentifierValue } from '@core/utils/identifier'
+import { normalizeImportedText } from '@core/htmlImport'
 import type {
   FormProps,
   LabelProps,
@@ -53,11 +54,16 @@ export const labelHtmlContract: ModuleHtmlContract<LabelProps> = {
   textContent: (props) => String(props.text ?? ''),
   claimSelector: 'label',
   canHaveChildren: false,
-  fromHtml: (el) => ({
-    text: el.textContent ?? '',
-    targetMode: (el.getAttribute('for') ? 'explicit' : 'auto') as LabelProps['targetMode'],
-    targetId: el.getAttribute('for') ?? '',
-  }),
+  fromHtml: (el) => {
+    // If the element has element children, skip the overlay and preserve
+    // the DOM structure as a recursing DOM-native node.
+    if (el.children.length > 0) return null
+    return {
+      text: normalizeImportedText(el.textContent ?? ''),
+      targetMode: (el.getAttribute('for') ? 'explicit' : 'auto') as LabelProps['targetMode'],
+      targetId: el.getAttribute('for') ?? '',
+    }
+  },
 }
 
 export const inputHtmlContract: ModuleHtmlContract<InputProps> = {

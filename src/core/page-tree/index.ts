@@ -118,6 +118,7 @@ export {
   updateNodeProps,
   setBreakpointOverride,
   clearBreakpointOverride,
+  syncModuleOverlayHtmlFields,
   renameNode,
   toggleNodeLocked,
   toggleNodeHidden,

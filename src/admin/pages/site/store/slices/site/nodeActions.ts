@@ -23,6 +23,7 @@ import {
   updateNodeProps,
   setBreakpointOverride,
   clearBreakpointOverride,
+  syncModuleOverlayHtmlFields,
   renameNode,
   toggleNodeLocked,
   toggleNodeHidden,
@@ -335,8 +336,11 @@ export function createNodeActions(helpers: SiteSliceHelpers): NodeActions {
         (tree) => {
           const node = tree.nodes[nodeId]
           if (!node) throw new Error(`[PageTree] Node "${nodeId}" not found`)
-          if (!recordPatchChanges(node.props, patch)) return false
+          const propBag = node.moduleOverlay?.props ?? node.props
+          if (!recordPatchChanges(propBag, patch)) return false
           updateNodeProps(tree, nodeId, patch)
+          // For unified nodes, keep DOM-native fields in sync with overlay props.
+          syncModuleOverlayHtmlFields(tree, nodeId, registry)
           return true
         },
         coalesceKeyForPatch('props', nodeId, patch),

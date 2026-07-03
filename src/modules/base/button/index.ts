@@ -15,6 +15,7 @@ import {
   htmlAttributesControl,
   htmlAttributesForReact,
 } from '@modules/base/shared/htmlAttributes'
+import { normalizeImportedText } from '@core/htmlImport'
 import { resolveButtonAnchor } from './anchor'
 import { ButtonEditor } from './ButtonEditor'
 import { ButtonPropsSchema, type ButtonStoredProps } from './props'
@@ -74,21 +75,21 @@ export const ButtonModule: ModuleDefinition<ButtonStoredProps> = {
       return attrs
     },
     textContent: (props) => String(props.label ?? ''),
-    claimSelector: 'button, a.btn, .btn, [data-module="button"]',
+    claimSelector: 'button:not([type="submit"]), a.btn, .btn, [data-module="button"]',
     canHaveChildren: false,
     fromHtml: (el) => {
       const tag = el.tagName.toLowerCase()
       if (tag === 'a') {
         const target = el.getAttribute('target') ?? '_self'
         return {
-          label: el.textContent ?? '',
+          label: normalizeImportedText(el.textContent ?? ''),
           href: el.getAttribute('href') ?? '',
           target: (['_self', '_blank', '_parent'].includes(target) ? target : '_self') as ButtonStoredProps['target'],
           disabled: false,
         }
       }
       return {
-        label: el.textContent ?? '',
+        label: normalizeImportedText(el.textContent ?? ''),
         href: '',
         disabled: el.hasAttribute('disabled'),
       }

@@ -303,7 +303,7 @@ function runInsertHtml(input: InsertHtmlInput): AiToolOutput {
     if (!node) return
     created.push({
       id,
-      moduleId: node.moduleId,
+      moduleId: node.moduleOverlay?.moduleId ?? node.moduleId,
       tag: node.tag || undefined,
       classes: (node.classIds ?? []).map((cid) => styleRules[cid]?.name ?? cid),
     })
@@ -423,7 +423,7 @@ function runUpdateNodeProps(input: UpdateNodePropsInput): AiToolOutput {
   if (!node) {
     return nodeNotInActiveDocError(store, input.nodeId)
   }
-  if (isDomNode(node)) {
+  if (isDomNode(node) && !node.moduleOverlay) {
     return aiToolError(
       `Node ${input.nodeId} is a DOM-native node (tag: ${node.tag}). Use site_update_dom_node to update its tag, attributes, or textContent.`,
     )
@@ -447,9 +447,10 @@ function runUpdateNodeProps(input: UpdateNodePropsInput): AiToolOutput {
     if (!node) {
       return nodeNotInActiveDocError(store, input.nodeId)
     }
-    const definition = registry.get(node.moduleId)
+    const moduleId = node.moduleOverlay?.moduleId ?? node.moduleId
+    const definition = registry.get(moduleId)
     if (!definition) {
-      return aiToolError(`Unknown module on node: ${node.moduleId}`)
+      return aiToolError(`Unknown module on node: ${moduleId}`)
     }
     const nonOverridable = Object.keys(sanitizedPatch).filter(
       (key) => definition.schema[key]?.breakpointOverridable !== true,

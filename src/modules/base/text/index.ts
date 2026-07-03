@@ -14,6 +14,7 @@ import {
   htmlAttributesForReact,
 } from '@modules/base/shared/htmlAttributes'
 import { textToBreakHtml } from '@modules/base/shared/inlineText'
+import { normalizeImportedText } from '@core/htmlImport'
 import { TextEditor } from './TextEditor'
 import { normalizeTag } from './tags'
 import { TextPropsSchema, type TextStoredProps } from './props'
@@ -78,10 +79,13 @@ export const TextModule: ModuleDefinition<TextStoredProps> = {
     claimSelector: 'h1, h2, h3, h4, h5, h6, p, span, small, strong, em',
     canHaveChildren: false,
     fromHtml: (el) => {
+      // If the element has element children, skip the overlay and preserve
+      // the DOM structure as a recursing DOM-native node.
+      if (el.children.length > 0) return null
       const tag = el.tagName.toLowerCase()
       const knownTags = new Set(['p', 'h1', 'h2', 'h3', 'h4', 'h5', 'h6', 'span', 'div', 'small', 'strong', 'em'])
       return {
-        text: el.textContent ?? '',
+        text: normalizeImportedText(el.textContent ?? ''),
         tag: knownTags.has(tag) ? (tag as TextStoredProps['tag']) : 'div',
       }
     },
