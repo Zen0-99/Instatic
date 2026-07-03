@@ -159,6 +159,12 @@ export interface AgentToolCall {
    * agent looked at; never persisted — it rehydrates empty after a reload.
    */
   screenshotDataUrl?: string
+  /**
+   * Human-readable label resolved at creation time (e.g. ".icon").
+   * Cached so tool-call rows still show a friendly name after the node
+   * has been deleted. Populated for node-related tools only.
+   */
+  displayLabel?: string
 }
 
 /**

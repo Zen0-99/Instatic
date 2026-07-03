@@ -49,6 +49,12 @@ export interface AgentSlice {
    * cleared. Each entry carries the layer's nodeId and display label.
    */
   agentDraftMentions: AgentDraftMention[]
+  /**
+   * Accumulated nodeId → human label registry across the conversation.
+   * Survives node deletion so scanned assistant mentions can still be
+   * rendered as clickable pills with friendly names after a node is gone.
+   */
+  agentMentionLabels: Record<string, string>
 
   openAgent(): void
   closeAgent(): void

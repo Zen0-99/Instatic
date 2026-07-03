@@ -34,6 +34,7 @@ import type {
   ServerStreamEvent,
 } from './types'
 import { getErrorMessage } from '@core/utils/errorMessage'
+import { getMentionLabelForNode } from './mentionLabel'
 
 // ---------------------------------------------------------------------------
 // Stream-event schema
@@ -182,6 +183,20 @@ export async function processStreamEvent(
           if (inputAsRecord) existing.toolCall.params = inputAsRecord
           return
         }
+        // Resolve a friendly display label now, while the node still exists.
+        const nodeId =
+          typeof inputAsRecord?.nodeId === 'string'
+            ? (inputAsRecord.nodeId as string)
+            : undefined
+        let displayLabel: string | undefined
+        if (nodeId) {
+          try {
+            displayLabel = getMentionLabelForNode(nodeId).label
+          } catch {
+            /* ignore */
+          }
+        }
+
         msg.blocks.push({
           kind: 'toolCall',
           toolCall: {
@@ -191,8 +206,13 @@ export async function processStreamEvent(
             params: inputAsRecord ?? {},
             result: null,
             status: 'pending',
+            displayLabel,
           },
         })
+        // Register label so AI response scanning can resolve it after deletion
+        if (nodeId && displayLabel) {
+          state.agentMentionLabels[nodeId] = displayLabel
+        }
       })
       break
     }
