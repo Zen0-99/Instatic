@@ -7,19 +7,19 @@ summary: Rules for the IDE AI agent working with the Instatic CMS via the MCP HT
 
 # IDE CMS Workflow — Always Active
 
-You are operating the Instatic CMS from inside an IDE-based AI agent (Windsurf Cascade). The only tools available are the IDE MCP HTTP API tools:
+You are operating the Instatic CMS from inside an IDE-based AI agent (Windsurf Cascade). The only MCP tools you should use are:
 
 - `cms_export_html` — read the current draft HTML of a page
 - `cms_import_html` — replace or merge a page with new HTML + CSS
-- `cms_list_classes` — list every class-kind style rule with its CSS
-- `cms_get_class` — inspect a single class by name or id
+
+The class registry is read from the static file `scripts/mcp/injections/cms-classes.md`. Do not call `cms_list_classes` or `cms_get_class` as part of the normal workflow.
 
 ## 0. Check MCP tool reachability first — abort if tools are unreachable
 
-Before doing anything, verify that the MCP tools are actually reachable. Call `cms_export_html` and `cms_list_classes` as a health check.
+Before doing anything, verify that the MCP tools are actually reachable. Call `cms_export_html` as a health check.
 
-- If both tools return successfully, you may proceed.
-- If either tool returns a transport error, timeout, "transport closed", or any other failure that indicates the MCP server or relay is not connected, **stop immediately**. Do not attempt alternative methods, fallbacks, direct HTTP calls, or workarounds. Tell the user: *"The MCP tools are not reachable right now. The CMS workflow cannot continue until the connection is restored."* and explain the specific error you saw.
+- If `cms_export_html` returns successfully, you may proceed.
+- If it returns a transport error, timeout, "transport closed", or any other failure that indicates the MCP server or relay is not connected, **stop immediately**. Do not attempt alternative methods, fallbacks, direct HTTP calls, or workarounds. Tell the user: *"The MCP tools are not reachable right now. The CMS workflow cannot continue until the connection is restored."* and explain the specific error you saw.
 - Do not freestyle, guess, or bypass the tools to accomplish the goal. The workflow relies on these tools for safety and consistency.
 
 ## 1. Always start by reading the current state
@@ -31,14 +31,11 @@ Before designing or editing anything, gather **both** pieces of context:
 
 You may only proceed after you have the export HTML and have read the class registry file.
 
-**Note:** The `cms_list_classes` and `cms_get_class` tools exist as a fallback, but the static registry file is the preferred source because it avoids the large-payload bottleneck and can be kept up to date with the codebase.
-
 ## 2. Reuse existing classes — do not invent your own
 
 The CMS already has a class registry. Every visual decision (font-size, color, spacing, border-radius, shadow, etc.) should be expressed through an existing class when possible.
 
 - Check the static registry file `scripts/mcp/injections/cms-classes.md` first for classes that already provide the style you need.
-- Use `cms_get_class(name)` only if you need to confirm the current state of a class at runtime.
 - If a class exists with the right CSS, use it. Do not create a duplicate.
 - If you need a small tweak, prefer editing an existing class via the CMS UI rather than minting a new one.
 - Only create a new class when no existing class provides the required style.
@@ -92,8 +89,7 @@ When you call `cms_import_html`, include a `<style>` block in the HTML with the 
 After calling `cms_import_html`, do the following:
 
 1. Call `cms_export_html(slug)` again to confirm the HTML matches your intent.
-2. Read the static registry `scripts/mcp/injections/cms-classes.md` to confirm the class registry vocabulary is clean and no duplicates were created.
-3. If you see unexpected new classes, fix the import by editing the CSS and re-importing.
+2. Inspect the exported HTML for unexpected new class names or duplicates. If you see unexpected new classes, fix the import by editing the CSS and re-importing.
 
 **Server restarts:** Do not restart the dev server, relay, or MCP server on your own. If a server error appears in the logs, verify whether the process is actually unreachable (e.g., a timeout or refused connection). Only ask the user to restart a service if it has genuinely crashed and is not accepting connections.
 
@@ -116,7 +112,17 @@ The CMS is a hybrid: internally it stores a tree of PageNodes, but the only inte
 - **Do not emit CMS internals** in the HTML you send. Never hardcode `data-node-id`, `moduleId`, `classId`, or other implementation-specific attributes.
 - The HTML you send should be clean, portable, and renderable outside the CMS. The CMS will map it to its own module and class system automatically.
 
-## 12. Summary checklist
+## 12. Tool and JSON handling rules
+
+When building the `html` payload for `cms_import_html` or doing any other tool interaction:
+
+- **Use the MCP tools only** — `cms_export_html` and `cms_import_html`. Do not fall back to `curl`, direct HTTP requests, `fetch`, or shell scripts if the MCP tools fail.
+- **Do not use `ConvertTo-Json`** — PowerShell's `ConvertTo-Json` does not serialize long HTML strings correctly; it can wrap the string as `"html":{"value":"..."}` instead of `"html":"..."`, which causes the CMS to reject the import with `Invalid request body`.
+- **Prefer Bun/JavaScript for JSON** — use `JSON.stringify({ slug, html, mode })` in a `.ts` or `.js` script, or write the payload with a proper JSON library. If you must use shell, write the payload to a file with a tool that preserves the string shape.
+- **Do not mutate the file system unnecessarily** — do not create extra temporary scripts, log files, or helper files beyond what is needed for a single verification step. Clean up temporary files after use.
+- **Do not restart services** — do not restart the dev server, relay, or MCP server unless the process is genuinely unreachable. Error messages in logs are not enough to justify a restart.
+
+## 13. Summary checklist
 
 Before every `cms_import_html` call, confirm:
 
