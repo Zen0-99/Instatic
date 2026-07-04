@@ -25,8 +25,6 @@ function createAgentStore(overrides: Partial<AgentSlice> = {}) {
     agentActiveCredentialId: null,
     agentActiveModelId: null,
     agentConversations: [],
-    agentCascadeRelay: false,
-    agentCascadeModelId: null,
     openAgent: () => set({ isAgentOpen: true }),
     closeAgent: () => set({ isAgentOpen: false }),
     toggleAgent: () => set((state) => ({ isAgentOpen: !state.isAgentOpen })),
@@ -41,8 +39,6 @@ function createAgentStore(overrides: Partial<AgentSlice> = {}) {
       set({ agentActiveCredentialId: credentialId, agentActiveModelId: modelId, agentError: null })
     },
     loadScopeDefault: async () => {},
-    toggleCascadeRelay: () => set((state) => ({ agentCascadeRelay: !state.agentCascadeRelay })),
-    setCascadeModel: (modelId: string) => set({ agentCascadeModelId: modelId }),
     ...overrides,
   }))
 }

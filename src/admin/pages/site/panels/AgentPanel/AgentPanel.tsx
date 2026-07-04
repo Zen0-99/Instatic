@@ -74,8 +74,6 @@ export function AgentPanel({ variant = 'floating' }: { variant?: PanelVariant })
   const abortAgent = useAgentStore((s) => s.abortAgent)
   const startNewAgentConversation = useAgentStore((s) => s.startNewAgentConversation)
   const loadScopeDefault = useAgentStore((s) => s.loadScopeDefault)
-  const cascadeRelay = useAgentStore((s) => s.agentCascadeRelay)
-  const toggleCascadeRelay = useAgentStore((s) => s.toggleCascadeRelay)
   const activeCredentialId = useAgentStore((s) => s.agentActiveCredentialId)
   const activeModelId = useAgentStore((s) => s.agentActiveModelId)
   const credentialsResource = useAsyncResource(
@@ -92,14 +90,11 @@ export function AgentPanel({ variant = 'floating' }: { variant?: PanelVariant })
   // Locking off `hasActiveProvider` (not a sticky error string) is what keeps
   // the composer usable the instant the user picks a model.
   const hasActiveProvider = Boolean(activeCredentialId && activeModelId)
-  // When the Cascade relay toggle is ON, messages route through the local MCP
-  // server → Windsurf IDE Cascade, so no AI provider credential is needed.
-  const composerLocked = !cascadeRelay && !hasActiveProvider
+  const composerLocked = !hasActiveProvider
   // Why the composer is locked, used for the empty-state + placeholder copy:
   //   'setup'       → no credentials exist at all → add one in AI settings.
   //   'chooseModel' → credentials exist but no scope default / pick yet →
   //                   choose a model below, or set a default in AI settings.
-  //   null + relay  → Cascade relay is active, composer is unlocked.
   // While credentials are still loading we keep messaging neutral (null) so
   // the panel doesn't flash a setup prompt before the default preload lands.
   const lockReason: 'setup' | 'chooseModel' | null = !composerLocked
@@ -239,21 +234,6 @@ export function AgentPanel({ variant = 'floating' }: { variant?: PanelVariant })
         >
           <EditSolidIcon size={14} />
         </Button>
-        {/* "IDE Cascade" relay toggle — routes chat through Windsurf Cascade
-            via the local MCP server instead of the native AI provider. */}
-        <Button
-          variant="ghost"
-          size="xs"
-          iconOnly
-          onClick={toggleCascadeRelay}
-          tooltip={cascadeRelay ? 'IDE Cascade ON — click to disable' : 'IDE Cascade — route through Windsurf'}
-          aria-label="Toggle IDE Cascade relay"
-          aria-pressed={cascadeRelay}
-          data-testid="agent-cascade-relay-toggle"
-          className={cascadeRelay ? styles.cascadeRelayActive : undefined}
-        >
-          <AiBoxSolidIcon size={14} />
-        </Button>
         {isStreaming && (
           <span className={styles.streamingBadge}>
             <span className={styles.streamingDot} aria-hidden="true" />
@@ -280,10 +260,10 @@ export function AgentPanel({ variant = 'floating' }: { variant?: PanelVariant })
         className={styles.thread}
       >
         {messages.length === 0 ? (
-          <AgentEmptyState mode={cascadeRelay ? 'cascade' : (lockReason ?? 'prompt')} />
+          <AgentEmptyState mode={lockReason ?? 'prompt'} />
         ) : (
           <>
-            {lockReason && !cascadeRelay && <AgentCredentialAlert mode={lockReason} />}
+            {lockReason && <AgentCredentialAlert mode={lockReason} />}
             {groupConsecutiveMessages(messages).map((group) => (
               <MessageBubble key={group.id} group={group} />
             ))}
@@ -310,13 +290,11 @@ export function AgentPanel({ variant = 'floating' }: { variant?: PanelVariant })
           {!isStreaming && (
             <Textarea
               ref={inputRef}
-              placeholder={cascadeRelay
-                ? 'Message via Windsurf Cascade… (Enter to send)'
-                : lockReason === 'setup'
-                  ? 'Add AI credentials to start chatting'
-                  : lockReason === 'chooseModel'
-                    ? 'Choose a model below to start'
-                    : 'Tell me what to build… (Enter to send)'}
+              placeholder={lockReason === 'setup'
+                ? 'Add AI credentials to start chatting'
+                : lockReason === 'chooseModel'
+                  ? 'Choose a model below to start'
+                  : 'Tell me what to build… (Enter to send)'}
               aria-label="Message to AI assistant"
               rows={2}
               resize="none"
@@ -356,14 +334,12 @@ export function AgentPanel({ variant = 'floating' }: { variant?: PanelVariant })
                 variant="primary"
                 size="sm"
                 iconOnly
-                disabled={composerLocked || isStreaming}
+                disabled={composerLocked}
                 tooltip={lockReason === 'setup'
                   ? 'Add AI credentials first'
                   : lockReason === 'chooseModel'
                     ? 'Choose a model first'
-                    : cascadeRelay
-                      ? 'Send to Cascade'
-                      : 'Send'}
+                    : 'Send'}
                 aria-label="Send"
               >
                 <SendSolidIcon size={14} />
@@ -466,11 +442,6 @@ function groupRenderItems(messages: AgentMessage[]): MessageRenderItem[] {
         items.push({ kind: 'text', key: `text-${message.id}-${index}`, text: block.text })
         return
       }
-      if (block.kind === 'thinking') {
-        // Thinking blocks are collected by the Cascade relay path but not
-        // rendered in the current UI — skip them here.
-        return
-      }
       const last = items.at(-1)
       if (last && last.kind === 'tools') {
         last.toolCalls.push(block.toolCall)
@@ -522,21 +493,7 @@ const MarkdownTextBubble = memo(function MarkdownTextBubble({
 
 type ComposerLockReason = 'setup' | 'chooseModel'
 
-type EmptyStateMode = ComposerLockReason | 'prompt' | 'cascade'
-
-function AgentEmptyState({ mode }: { mode: EmptyStateMode }) {
-  if (mode === 'cascade') {
-    return (
-      <EmptyState
-        variant="centered"
-        size="large"
-        icon={<AiBoxSolidIcon size={28} color="var(--primary, var(--text))" />}
-        title="Connected to Windsurf Cascade"
-        description="Messages route directly to the Windsurf IDE via Connect-RPC. Cascade has access to all CMS editing tools through the registered MCP server — insertHtml, applyCss, addPage, publish, and more."
-      />
-    )
-  }
-
+function AgentEmptyState({ mode }: { mode: ComposerLockReason | 'prompt' }) {
   if (mode === 'setup') {
     return (
       <EmptyState
