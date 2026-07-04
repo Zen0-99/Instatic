@@ -15,15 +15,17 @@ const CMS_FETCH_TIMEOUT_MS = parseInt(process.env.MCP_CMS_FETCH_TIMEOUT_MS ?? '2
 
 export class CmsClient {
   private baseUrl: string
-  private email: string
-  private password: string
+  private email?: string
+  private password?: string
+  private apiKey?: string
   private cookie: string | null = null
   private _loginPromise: Promise<void> | null = null
 
-  constructor(baseUrl: string, email: string, password: string) {
+  constructor(baseUrl: string, email?: string, password?: string, apiKey?: string) {
     this.baseUrl = baseUrl.replace(/\/$/, '')
     this.email = email
     this.password = password
+    this.apiKey = apiKey
   }
 
   /** Public entry for eager authentication at daemon startup. */
@@ -33,6 +35,7 @@ export class CmsClient {
 
   /** Single-flight login — parallel callers share one in-flight promise. */
   private _ensureLogin(): Promise<void> {
+    if (this.apiKey) return Promise.resolve()
     if (this.cookie) return Promise.resolve()
     if (this._loginPromise) return this._loginPromise
     this._loginPromise = this._doLogin()
@@ -69,8 +72,11 @@ export class CmsClient {
   ): Promise<unknown> {
     await this._ensureLogin()
 
-    const headers: Record<string, string> = {
-      Cookie: this.cookie!,
+    const headers: Record<string, string> = {}
+    if (this.apiKey) {
+      headers['Authorization'] = `Bearer ${this.apiKey}`
+    } else if (this.cookie) {
+      headers['Cookie'] = this.cookie
     }
     if (body !== undefined) {
       headers['Content-Type'] = 'application/json'
@@ -86,7 +92,7 @@ export class CmsClient {
         // Session expired — clear cookie, re-login, retry once
         this.cookie = null
         await this._ensureLogin()
-        headers.Cookie = this.cookie!
+        if (this.cookie) headers['Cookie'] = this.cookie
         const retryRes = await fetch(url, {
           method,
           headers,
@@ -183,5 +189,30 @@ export class CmsClient {
 
   publishDataRow(rowId: string, traceId?: string): Promise<unknown> {
     return this.request(traceId ?? 'cms', 'POST', `/admin/api/cms/data/rows/${rowId}/publish`)
+  }
+
+  // ── Import / Export (API key auth) ──────────────────────────────────────
+
+  importHtml(
+    slug: string,
+    html: string,
+    title?: string,
+    mode?: 'replace' | 'merge',
+    traceId?: string,
+  ): Promise<unknown> {
+    return this.request(traceId ?? 'cms', 'POST', '/admin/api/cms/pages/import-html', {
+      slug,
+      html,
+      title,
+      mode,
+    })
+  }
+
+  exportHtml(slug: string, traceId?: string): Promise<unknown> {
+    return this.request(traceId ?? 'cms', 'GET', `/admin/api/cms/pages/${slug}/export-html`)
+  }
+
+  getClass(nameOrId: string, traceId?: string): Promise<unknown> {
+    return this.request(traceId ?? 'cms', 'GET', `/admin/api/cms/classes/${encodeURIComponent(nameOrId)}`)
   }
 }

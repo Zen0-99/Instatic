@@ -36,6 +36,12 @@ const MCP_PORT = parseInt(process.env.INSTATIC_MCP_PORT ?? '9876', 10)
 // ─── Subsystems ────────────────────────────────────────────────────────────
 
 const cmsClient = new CmsClient(CMS_URL, ADMIN_EMAIL, ADMIN_PASSWORD)
+const cmsApiKeyClient = new CmsClient(
+  CMS_URL,
+  undefined,
+  undefined,
+  process.env.INSTATIC_API_KEY,
+)
 const windsurfClient = new WindsurfClient()
 const chatRelay = new ChatRelayQueue()
 
@@ -53,60 +59,18 @@ async function executeTool(
   const start = Date.now()
 
   try {
-    switch (tool.execution) {
-      case 'browser': {
-        // render_snapshot's html-to-image screenshot capture is very slow for
-        // full-page desktop captures and exceeds the browser's 25s budget.
-        // Through the MCP text channel the model gets the layout report
-        // (bounding boxes, text, computed styles) which is sufficient for
-        // verification.  Skip the screenshot to avoid timeouts.
-        if (name === 'render_snapshot') {
-          input = { ...input, captureScreenshot: false }
-        }
-        const result = await chatRelay.requestBrowserTool(name, input, { traceId })
-        logHop(traceId, name, 'relay:browser', 'exit', Date.now() - start)
-        return result
+    if (tool.execution === 'http-api') {
+      const apiKeyTools = new Set(['cms_import_html', 'cms_export_html', 'cms_get_pages', 'cms_get_class'])
+      const isApiKeyTool = apiKeyTools.has(name)
+      if (isApiKeyTool && !process.env.INSTATIC_API_KEY) {
+        throw new Error('INSTATIC_API_KEY is not configured')
       }
-
-      case 'http-api': {
-        const result = await executeHttpApiTool(name, input, cmsClient, traceId)
-        logHop(traceId, name, 'relay:http-api', 'exit', Date.now() - start)
-        return result
-      }
-
-      case 'chat-relay': {
-        switch (name) {
-          case 'get_cms_chat_messages': {
-            chatRelay.markPoll()
-            const messages = chatRelay.dequeueMessages()
-            return { messages }
-          }
-          case 'send_cms_chat_response': {
-            return { ok: true, note: 'ignored in hybrid mode' }
-          }
-          default:
-            return { error: `Unknown chat relay tool: ${name}` }
-        }
-      }
-
-      case 'local': {
-        switch (name) {
-          case 'get_guidance': {
-            const packId = input.pack as string
-            const validIds = listPackIds()
-            if (!validIds.includes(packId)) {
-              return { error: `Unknown guidance pack: "${packId}"`, validPacks: validIds }
-            }
-            return { pack: packId, guidance: getPack(packId) }
-          }
-          default:
-            return { error: `Unknown local tool: ${name}` }
-        }
-      }
-
-      default:
-        throw new Error(`Unknown execution type: ${tool.execution}`)
+      const client = isApiKeyTool ? cmsApiKeyClient : cmsClient
+      const result = await executeHttpApiTool(name, input, client, traceId)
+      logHop(traceId, name, 'relay:http-api', 'exit', Date.now() - start)
+      return result
     }
+    throw new Error(`Unknown execution type: ${tool.execution}`)
   } catch (err) {
     logHop(traceId, name, 'relay:executeTool', 'error', Date.now() - start, err instanceof Error ? err.message : String(err))
     throw err
@@ -327,37 +291,46 @@ async function startRelayDaemon(): Promise<void> {
       // ─── MCP Thin-Server Forwarding Endpoints ─────────────────────────
 
       // POST /mcp/tool — execute a tool call from the thin MCP server
+      // CORS headers are intentionally omitted: this endpoint is only called
+      // by the local thin MCP server (server.ts), not by a browser.
       if (url.pathname === '/mcp/tool' && req.method === 'POST') {
-        const body = await req.json() as { name: string; arguments?: Record<string, unknown>; traceId?: string }
+        const rawBody = await req.text()
+        let body: { name: string; arguments?: Record<string, unknown>; traceId?: string }
+        try {
+          body = JSON.parse(rawBody)
+        } catch (err) {
+          const message = err instanceof Error ? err.message : String(err)
+          return new Response(JSON.stringify({ ok: false, error: `Invalid JSON: ${message}` }), {
+            status: 400,
+            headers: { 'Content-Type': 'application/json' },
+          })
+        }
         const traceId = body.traceId ?? 'relay'
         try {
           const result = await executeTool(body.name, body.arguments ?? {}, traceId)
           return new Response(JSON.stringify({ ok: true, result }), {
-            headers: { 'Content-Type': 'application/json', ...corsHeaders },
+            headers: { 'Content-Type': 'application/json' },
           })
         } catch (err) {
           const message = err instanceof Error ? err.message : String(err)
           log(`[Relay] Tool ${body.name} (trace ${traceId}) error: ${message}`)
           return new Response(JSON.stringify({ ok: false, error: message, traceId }), {
             status: 500,
-            headers: { 'Content-Type': 'application/json', ...corsHeaders },
+            headers: { 'Content-Type': 'application/json' },
           })
         }
       }
 
       // GET /mcp/tools — list tools for the thin MCP server
-      // In hybrid mode, messages flow via SSE directly; hide both relay tools
-      // so the AI doesn't try to use them (would duplicate or stall).
+      // The registry is already restricted to the IDE HTTP API tools; return
+      // them as-is so the thin MCP server exposes the correct set.
       if (url.pathname === '/mcp/tools' && req.method === 'GET') {
-        const excluded = new Set(['send_cms_chat_response', 'get_cms_chat_messages'])
         return new Response(JSON.stringify({
-          tools: allTools
-            .filter((t) => !excluded.has(t.name))
-            .map((t) => ({
-              name: t.name,
-              description: t.description,
-              inputSchema: t.inputSchema,
-            })),
+          tools: allTools.map((t) => ({
+            name: t.name,
+            description: t.description,
+            inputSchema: t.inputSchema,
+          })),
         }), { headers: { 'Content-Type': 'application/json', ...corsHeaders } })
       }
 

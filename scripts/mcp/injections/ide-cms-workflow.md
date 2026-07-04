@@ -7,12 +7,14 @@ summary: Rules for the IDE AI agent working with the Instatic CMS via the MCP HT
 
 # IDE CMS Workflow — Always Active
 
-You are operating the Instatic CMS from inside an IDE-based AI agent (Windsurf Cascade). The only MCP tools you should use are:
+You are operating the Instatic CMS from inside an IDE-based AI agent (Windsurf Cascade). The MCP tools you can use are:
 
 - `cms_export_html` — read the current draft HTML of a page
 - `cms_import_html` — replace or merge a page with new HTML + CSS
+- `cms_get_pages` — (optional) list all pages with slug and title when you are unsure which page to work on
+- `cms_get_class` — (fallback only) inspect a single class by name or id if the static registry is unclear
 
-The class registry is read from the static file `scripts/mcp/injections/cms-classes.md`. Do not call `cms_list_classes` or `cms_get_class` as part of the normal workflow.
+The class registry is read from the static file `scripts/mcp/injections/cms-classes.md`.
 
 ## 0. Check MCP tool reachability first — abort if tools are unreachable
 
