@@ -99,7 +99,7 @@ export function PropertiesPanelBody(props: PropertiesPanelBodyProps): React.Reac
     return <MultiSelectionInspector selectedNodeIds={selectedNodeIds} />
   }
 
-  if (!selectedNode || !definition) {
+  if (!selectedNode) {
     const inEmptyVcCanvas =
       activeDocument?.kind === 'visualComponent' &&
       selectedNodeId === null &&

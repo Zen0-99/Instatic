@@ -33,6 +33,12 @@ interface ServerRuntime {
    * storage dashboard widget).
    */
   databaseUrl?: string
+  /**
+   * Local project root for file-export (e.g. `.instatic/pages`). When set,
+   * successful site saves export clean HTML pages to this directory so the
+   * IDE AI can read them as workspace files.
+   */
+  projectRoot?: string
 }
 
 /**
@@ -151,6 +157,7 @@ function tryServeCmsApi(req: Request, runtime: ServerRuntime, _url: URL, pathnam
   return handleCmsRequest(req, runtime.db, {
     uploadsDir: runtime.uploadsDir,
     databaseUrl: runtime.databaseUrl,
+    projectRoot: runtime.projectRoot,
   })
 }
 

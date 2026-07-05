@@ -67,9 +67,11 @@ import type { Page } from '@core/page-tree'
 import { badRequest, jsonResponse, methodNotAllowed, readValidatedBody } from '../../http'
 import { bumpPublishVersionSerialized } from '../../publish/publishState'
 import { Type, type Static } from '@core/utils/typeboxHelpers'
-import { CMS_API_PREFIX } from './shared'
+import { CMS_API_PREFIX, type CmsHandlerOptions } from './shared'
 import { ForbiddenSiteChangeError, validateSiteWriteDiff } from './siteDiff'
 import { validatePageWriteDiff } from './pageDiff'
+import { loadFullDraftSiteDocument } from '../../repositories/siteDocument'
+import { exportSiteFiles, deleteExportedPageFile } from '../../persistence/exportSiteFiles'
 
 const SITE_WRITE_CAPABILITIES = [
   'site.structure.edit',
@@ -143,7 +145,11 @@ function forbiddenStructuralChange(
   return jsonResponse({ error: err.message, kind: err.kind, path: err.path }, { status: 403 })
 }
 
-export async function handleSiteDocumentRoutes(req: Request, db: DbClient): Promise<Response | null> {
+export async function handleSiteDocumentRoutes(
+  req: Request,
+  db: DbClient,
+  options: CmsHandlerOptions = {},
+): Promise<Response | null> {
   const url = new URL(req.url)
   if (url.pathname !== `${CMS_API_PREFIX}/site-document`) return null
   if (req.method !== 'PUT') return methodNotAllowed()
@@ -340,6 +346,25 @@ export async function handleSiteDocumentRoutes(req: Request, db: DbClient): Prom
     // transaction chain). The multi-admin live-sync plan emits its site
     // events from this point too.
     if (deletedPublishedPage) await bumpPublishVersionSerialized()
+
+    // Local file-export: write clean HTML for changed pages so the IDE AI
+    // can read them as workspace files. This is best-effort and runs outside
+    // the transaction; failures are logged but do not fail the save.
+    if (options.projectRoot) {
+      try {
+        const site = await loadFullDraftSiteDocument(db)
+        if (site) {
+          const changedPageIds = new Set(pages.map((p) => p.id))
+          await exportSiteFiles(options.projectRoot, site, { pageIds: changedPageIds })
+          for (const deletedId of pageDeleteIds) {
+            const slug = existingPageSlugs.find((s) => s.id === deletedId)?.slug
+            if (slug) await deleteExportedPageFile(options.projectRoot, slug)
+          }
+        }
+      } catch (err) {
+        console.error('[site-document] Local file-export failed:', err)
+      }
+    }
 
     return jsonResponse({ ok: true, seq })
   } catch (err) {

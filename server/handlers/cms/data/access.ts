@@ -32,6 +32,7 @@
 import type { CoreCapability } from '../../../auth/capabilities'
 import {
   requireAnyCapability,
+  requireAnyCapabilityOrApiKey,
   requireCapability,
   userHasAnyCapability,
   userHasCapability,
@@ -48,6 +49,9 @@ const DATA_ACCESS_CAPABILITIES = [
   'content.publish.own',
   'content.publish.any',
   'content.manage',
+  'pages.import',
+  'pages.export',
+  'site.structure.edit',
 ] satisfies CoreCapability[]
 
 const DATA_ANY_VISIBILITY_CAPABILITIES = [
@@ -90,6 +94,10 @@ export async function requireDataAccess(req: Request, db: DbClient): Promise<Aut
   return requireAnyCapability(req, db, DATA_ACCESS_CAPABILITIES)
 }
 
+export async function requireDataAccessOrApiKey(req: Request, db: DbClient): Promise<AuthUser | Response> {
+  return requireAnyCapabilityOrApiKey(req, db, DATA_ACCESS_CAPABILITIES)
+}
+
 // Any data-table read/manage cap is enough to OPEN the Data workspace; the
 // list endpoint then filters tables per-family via `canReadTable`.
 const TABLE_READ_CAPABILITIES = [
@@ -97,6 +105,9 @@ const TABLE_READ_CAPABILITIES = [
   'data.custom.tables.manage',
   'data.system.tables.read',
   'data.system.tables.manage',
+  'pages.import',
+  'pages.export',
+  'site.structure.edit',
 ] satisfies CoreCapability[]
 
 /**
@@ -106,6 +117,10 @@ const TABLE_READ_CAPABILITIES = [
  */
 export async function requireDataTablesRead(req: Request, db: DbClient): Promise<AuthUser | Response> {
   return requireAnyCapability(req, db, TABLE_READ_CAPABILITIES)
+}
+
+export async function requireDataTablesReadOrApiKey(req: Request, db: DbClient): Promise<AuthUser | Response> {
+  return requireAnyCapabilityOrApiKey(req, db, TABLE_READ_CAPABILITIES)
 }
 
 /**

@@ -52,12 +52,56 @@ export const allTools: McpToolDef[] = [
     execution: 'http-api',
   },
   {
+    name: 'cms_get_site',
+    description: 'Read the site catalog: design tokens (colors, typography, spacing, fonts), registered modules, breakpoints, and page slugs. Use this before designing so you know which tokens and modules are available.',
+    inputSchema: json(Type.Object({})),
+    execution: 'http-api',
+  },
+  {
+    name: 'cms_get_components',
+    description: 'List all reusable visual components in the CMS with their id, name, and metadata. Use this when you want to know which components already exist before designing.',
+    inputSchema: json(Type.Object({})),
+    execution: 'http-api',
+  },
+  {
+    name: 'cms_get_layouts',
+    description: 'List all saved layouts in the CMS with their id, name, and metadata. Use this when you want to know which page layouts already exist.',
+    inputSchema: json(Type.Object({})),
+    execution: 'http-api',
+  },
+  {
+    name: 'cms_get_data_tables',
+    description: 'List all data tables (collections) in the CMS with their slug, label, and kind. Use this when you need to build dynamic loops or reference collection data.',
+    inputSchema: json(Type.Object({})),
+    execution: 'http-api',
+  },
+  {
     name: 'cms_get_class',
     description: 'Get a single class-style rule by name or id. Returns its CSS properties, context overrides, and metadata. Use when you need to inspect an existing class before modifying it.',
     inputSchema: json(Type.Object({
       name: Type.Optional(Type.String()),
       id: Type.Optional(Type.String()),
     })),
+    execution: 'http-api',
+  },
+  {
+    name: 'cms_list_classes',
+    description: 'List all CSS class-style rules in the site catalog. Returns each class with its selector, CSS properties, and order. Use this to discover the available CSS vocabulary before designing.',
+    inputSchema: json(Type.Object({})),
+    execution: 'http-api',
+  },
+  {
+    name: 'cms_get_page',
+    description: 'Get a single page by its slug. Returns the page row including title, id, and body nodes. Use this when you only need one specific page rather than the full page list.',
+    inputSchema: json(Type.Object({
+      slug: Type.String(),
+    })),
+    execution: 'http-api',
+  },
+  {
+    name: 'cms_get_publish_status',
+    description: 'Check whether the current draft site has unpublished changes compared to the last published snapshot.',
+    inputSchema: json(Type.Object({})),
     execution: 'http-api',
   },
 ]

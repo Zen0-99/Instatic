@@ -26,7 +26,7 @@ export const CAPABILITY_GROUPS: CapabilityGroup[] = [
       'site.style.edit',
     ],
   },
-  { title: 'Pages', capabilities: ['pages.edit', 'pages.publish'] },
+  { title: 'Pages', capabilities: ['pages.edit', 'pages.publish', 'pages.import', 'pages.export'] },
   {
     title: 'Content',
     capabilities: [
@@ -66,7 +66,7 @@ export const CAPABILITY_GROUPS: CapabilityGroup[] = [
     title: 'AI',
     capabilities: ['ai.chat', 'ai.tools.write', 'ai.providers.manage', 'ai.audit.read'],
   },
-  { title: 'Users & Roles', capabilities: ['users.manage', 'roles.manage'] },
+  { title: 'Users & Roles', capabilities: ['users.manage', 'roles.manage', 'apiKeys.manage'] },
   { title: 'Audit', capabilities: ['audit.read'] },
 ]
 

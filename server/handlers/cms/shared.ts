@@ -31,6 +31,12 @@ export interface CmsHandlerOptions {
    * branch on `db.dialect` instead of inspecting the URL themselves.
    */
   databaseUrl?: string
+  /**
+   * Local project root for file-export (e.g. `.instatic/pages`). When set,
+   * successful site saves export clean HTML pages to this directory so the
+   * IDE AI can read them as workspace files.
+   */
+  projectRoot?: string
 }
 
 export function requestAuditContext(req: Request): { ipAddress: string | null; userAgent: string | null } {

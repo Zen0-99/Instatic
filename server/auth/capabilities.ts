@@ -47,6 +47,8 @@ const adminCapabilities: CoreCapability[] = [
   'site.style.edit',
   'pages.edit',
   'pages.publish',
+  'pages.import',
+  'pages.export',
   'content.create',
   'content.edit.own',
   'content.edit.any',
@@ -78,6 +80,7 @@ const adminCapabilities: CoreCapability[] = [
   'ai.tools.write',
   'ai.providers.manage',
   'ai.audit.read',
+  'apiKeys.manage',
 ]
 
 const clientCapabilities: CoreCapability[] = [

@@ -3,6 +3,7 @@ import { SESSION_COOKIE_NAME, hashSessionToken } from './tokens'
 import { roleHasCapability, type CoreCapability } from './capabilities'
 import { findUserBySessionHash, getSessionStepUpExpiresAt, sessionRequiresMfa } from './sessions'
 import { jsonResponse } from '../http'
+import { requireAuthenticatedUserOrApiKey } from './apiKey'
 import type { AuthUser } from '../repositories/users'
 
 /**
@@ -83,6 +84,32 @@ export async function requireAnyCapability(
   capabilities: readonly CoreCapability[],
 ): Promise<AuthUser | Response> {
   const user = await requireAuthenticatedUser(req, db)
+  if (user instanceof Response) return user
+  if (!userHasAnyCapability(user, capabilities)) {
+    return jsonResponse({ error: 'Forbidden' }, { status: 403 })
+  }
+  return user
+}
+
+export async function requireCapabilityOrApiKey(
+  req: Request,
+  db: DbClient,
+  capability: CoreCapability,
+): Promise<AuthUser | Response> {
+  const user = await requireAuthenticatedUserOrApiKey(req, db)
+  if (user instanceof Response) return user
+  if (!userHasCapability(user, capability)) {
+    return jsonResponse({ error: 'Forbidden' }, { status: 403 })
+  }
+  return user
+}
+
+export async function requireAnyCapabilityOrApiKey(
+  req: Request,
+  db: DbClient,
+  capabilities: readonly CoreCapability[],
+): Promise<AuthUser | Response> {
+  const user = await requireAuthenticatedUserOrApiKey(req, db)
   if (user instanceof Response) return user
   if (!userHasAnyCapability(user, capabilities)) {
     return jsonResponse({ error: 'Forbidden' }, { status: 403 })

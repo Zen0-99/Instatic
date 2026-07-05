@@ -84,6 +84,8 @@ interface DialogProps {
   /** Disable backdrop-click closing. Defaults to false. */
   closeOnBackdrop?: boolean
 
+  /** Optional className on the backdrop. */
+  backdropClassName?: string
   /** Optional className on the dialog container. */
   className?: string
   /** Optional className on the scrollable body region. */
@@ -123,6 +125,7 @@ export function Dialog({
   hideCloseButton = false,
   closeOnEscape = true,
   closeOnBackdrop = true,
+  backdropClassName,
   className,
   bodyClassName,
   footerClassName,
@@ -181,7 +184,7 @@ export function Dialog({
 
   return createPortal(
     <div
-      className={styles.backdrop}
+      className={cn(styles.backdrop, backdropClassName)}
       onClick={(event) => {
         if (closeOnBackdrop && event.target === event.currentTarget) onClose()
       }}

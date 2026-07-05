@@ -23,11 +23,25 @@ export async function executeHttpApiTool(
       return client.exportHtml(input.slug as string, traceId)
     case 'cms_get_pages':
       return client.listPages(traceId)
+    case 'cms_get_site':
+      return client.getSiteCatalog(traceId)
+    case 'cms_get_components':
+      return client.getComponents(traceId)
+    case 'cms_get_layouts':
+      return client.getLayouts(traceId)
+    case 'cms_get_data_tables':
+      return client.listDataTables(traceId)
     case 'cms_get_class':
       return client.getClass(
         (input.name as string) || (input.id as string) || '',
         traceId,
       )
+    case 'cms_list_classes':
+      return client.listClasses(traceId)
+    case 'cms_get_page':
+      return client.getPageBySlug(input.slug as string, traceId)
+    case 'cms_get_publish_status':
+      return client.publishStatus(traceId)
     default:
       return { error: `Unknown HTTP API tool: ${toolName}` }
   }

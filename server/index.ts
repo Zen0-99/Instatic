@@ -94,6 +94,7 @@ Bun.serve({
         staticDir: config.staticDir,
         uploadsDir: config.uploadsDir,
         databaseUrl: config.databaseUrl,
+        projectRoot: config.projectRoot ?? undefined,
       })
       for (const [k, v] of Object.entries(cors)) {
         res.headers.set(k, v)

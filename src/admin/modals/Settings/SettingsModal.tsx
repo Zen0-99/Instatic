@@ -26,10 +26,12 @@ import { SettingsCogSolidIcon } from 'pixel-art-icons/icons/settings-cog-solid'
 import { CommandIcon } from 'pixel-art-icons/icons/command'
 import { UploadIcon } from 'pixel-art-icons/icons/upload'
 import { SlidersHorizontalIcon } from 'pixel-art-icons/icons/sliders-horizontal'
+import { LockSolidIcon } from 'pixel-art-icons/icons/lock-solid'
 import { GeneralSection } from './sections/GeneralSection'
 import { PublishingSection } from './sections/PublishingSection'
 import { ShortcutsSection } from './sections/ShortcutsSection'
 import { PreferencesSection } from './sections/PreferencesSection'
+import { ApiKeysSection } from './sections/ApiKeysSection'
 import s from './SettingsModal.module.css'
 
 // ─── Nav items ────────────────────────────────────────────────────────────────
@@ -42,6 +44,7 @@ const NAV_ITEMS = [
   { id: 'shortcuts',   label: 'Shortcuts',   icon: CommandIcon,           accent: 'sky'   },
   { id: 'publishing',  label: 'Publishing',  icon: UploadIcon,            accent: 'mint'  },
   { id: 'preferences', label: 'Preferences', icon: SlidersHorizontalIcon, accent: 'peach' },
+  { id: 'apiKeys',     label: 'API Keys',    icon: LockSolidIcon,         accent: 'rose'  },
 ] as const
 
 type SectionId = typeof NAV_ITEMS[number]['id']
@@ -208,10 +211,11 @@ export function SettingsModal() {
               aria-label={activeItem.label}
               className={s.content}
             >
-              {activeSection === 'general'     && <GeneralSection />}
-              {activeSection === 'shortcuts'   && <ShortcutsSection />}
-              {activeSection === 'publishing'  && <PublishingSection />}
-              {activeSection === 'preferences' && <PreferencesSection />}
+              <div hidden={activeSection !== 'general'}><GeneralSection /></div>
+              <div hidden={activeSection !== 'shortcuts'}><ShortcutsSection /></div>
+              <div hidden={activeSection !== 'publishing'}><PublishingSection /></div>
+              <div hidden={activeSection !== 'preferences'}><PreferencesSection /></div>
+              <div hidden={activeSection !== 'apiKeys'}><ApiKeysSection /></div>
             </div>
           </div>
         </div>

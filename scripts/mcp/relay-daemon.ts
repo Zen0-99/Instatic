@@ -25,6 +25,44 @@ function log(...args: unknown[]): void {
 }
 setTraceLogger(log)
 
+const TOOL_LOG_PATH = resolve(process.cwd(), 'mcp-tools.log')
+const TOOL_LOG_VERBOSE = (process.env.INSTATIC_MCP_TOOL_LOG ?? '1') === '1'
+
+function logToolUsage(
+  traceId: string,
+  name: string,
+  phase: 'start' | 'success' | 'error',
+  input: Record<string, unknown>,
+  result?: unknown,
+  error?: string,
+): void {
+  if (!TOOL_LOG_VERBOSE) return
+  const timestamp = new Date().toISOString()
+  const entry: Record<string, unknown> = {
+    timestamp,
+    traceId,
+    tool: name,
+    phase,
+    input,
+  }
+  if (result !== undefined) {
+    entry.result = summarizeForLog(result)
+  }
+  if (error) {
+    entry.error = error
+  }
+  const line = JSON.stringify(entry) + '\n'
+  try { appendFileSync(TOOL_LOG_PATH, line) } catch { /* ignore */ }
+  console.error(`[mcp-tool] ${traceId} ${name} ${phase}`)
+}
+
+function summarizeForLog(value: unknown, maxChars = 2000): unknown {
+  if (value === null || typeof value !== 'object') return value
+  const text = JSON.stringify(value)
+  if (text.length <= maxChars) return value
+  return text.slice(0, maxChars) + '...[truncated]'
+}
+
 // ─── Config ────────────────────────────────────────────────────────────────
 
 const CMS_URL = process.env.INSTATIC_CMS_URL ?? 'http://localhost:3001'
@@ -56,11 +94,24 @@ async function executeTool(
   if (!tool) throw new Error(`Unknown tool: ${name}`)
 
   logHop(traceId, name, 'relay:executeTool', 'enter')
+  logToolUsage(traceId, name, 'start', input)
   const start = Date.now()
 
   try {
     if (tool.execution === 'http-api') {
-      const apiKeyTools = new Set(['cms_import_html', 'cms_export_html', 'cms_get_pages', 'cms_get_class'])
+      const apiKeyTools = new Set([
+        'cms_import_html',
+        'cms_export_html',
+        'cms_get_pages',
+        'cms_get_site',
+        'cms_get_components',
+        'cms_get_layouts',
+        'cms_get_data_tables',
+        'cms_get_class',
+        'cms_list_classes',
+        'cms_get_page',
+        'cms_get_publish_status',
+      ])
       const isApiKeyTool = apiKeyTools.has(name)
       if (isApiKeyTool && !process.env.INSTATIC_API_KEY) {
         throw new Error('INSTATIC_API_KEY is not configured')
@@ -68,11 +119,14 @@ async function executeTool(
       const client = isApiKeyTool ? cmsApiKeyClient : cmsClient
       const result = await executeHttpApiTool(name, input, client, traceId)
       logHop(traceId, name, 'relay:http-api', 'exit', Date.now() - start)
+      logToolUsage(traceId, name, 'success', input, result)
       return result
     }
     throw new Error(`Unknown execution type: ${tool.execution}`)
   } catch (err) {
-    logHop(traceId, name, 'relay:executeTool', 'error', Date.now() - start, err instanceof Error ? err.message : String(err))
+    const message = err instanceof Error ? err.message : String(err)
+    logHop(traceId, name, 'relay:executeTool', 'error', Date.now() - start, message)
+    logToolUsage(traceId, name, 'error', input, undefined, message)
     throw err
   }
 }
@@ -295,9 +349,11 @@ async function startRelayDaemon(): Promise<void> {
       // by the local thin MCP server (server.ts), not by a browser.
       if (url.pathname === '/mcp/tool' && req.method === 'POST') {
         const rawBody = await req.text()
+        log(`[Relay] /mcp/tool received: body=${rawBody.length} bytes`)
         let body: { name: string; arguments?: Record<string, unknown>; traceId?: string }
         try {
           body = JSON.parse(rawBody)
+          log(`[Relay] /mcp/tool parsed: ${body.name} (trace ${body.traceId ?? 'relay'})`)
         } catch (err) {
           const message = err instanceof Error ? err.message : String(err)
           return new Response(JSON.stringify({ ok: false, error: `Invalid JSON: ${message}` }), {
@@ -308,12 +364,14 @@ async function startRelayDaemon(): Promise<void> {
         const traceId = body.traceId ?? 'relay'
         try {
           const result = await executeTool(body.name, body.arguments ?? {}, traceId)
+          const resultText = JSON.stringify(result)
+          log(`[Relay] /mcp/tool response for ${body.name} (trace ${traceId}): ok=true body=${resultText.length} bytes`)
           return new Response(JSON.stringify({ ok: true, result }), {
             headers: { 'Content-Type': 'application/json' },
           })
         } catch (err) {
           const message = err instanceof Error ? err.message : String(err)
-          log(`[Relay] Tool ${body.name} (trace ${traceId}) error: ${message}`)
+          log(`[Relay] /mcp/tool response for ${body.name} (trace ${traceId}): ok=false error=${message}`)
           return new Response(JSON.stringify({ ok: false, error: message, traceId }), {
             status: 500,
             headers: { 'Content-Type': 'application/json' },

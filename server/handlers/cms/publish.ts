@@ -19,7 +19,8 @@
  * and the `plugins.install` / `plugins.lifecycle` mutation surface.
  */
 import type { DbClient } from '../../db/client'
-import { requireCapability, requireStepUp } from '../../auth/authz'
+import { requireCapability, requireAnyCapabilityOrApiKey, requireStepUp } from '../../auth/authz'
+import type { CoreCapability } from '../../auth/capabilities'
 import { createAuditEvent } from '../../repositories/audit'
 import { getDraftPublishStatus } from '../../repositories/publish'
 import { publishDraftSite } from '../../publish/publishSite'
@@ -53,8 +54,11 @@ export async function handlePublishRoutes(
     return jsonResponse(result)
   }
 
+  // IDE API keys typically have pages.import/pages.export, not site.read.
+  const STATUS_READ_CAPABILITIES: readonly CoreCapability[] = ['site.read', 'pages.export', 'pages.import', 'site.structure.edit']
+
   if (url.pathname === '/admin/api/cms/publish/status') {
-    const user = await requireCapability(req, db, 'site.read')
+    const user = await requireAnyCapabilityOrApiKey(req, db, STATUS_READ_CAPABILITIES)
     if (user instanceof Response) return user
     if (req.method !== 'GET') return methodNotAllowed()
 

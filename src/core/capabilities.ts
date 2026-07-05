@@ -30,6 +30,8 @@ export const CORE_CAPABILITIES = [
   'site.style.edit',
   'pages.edit',
   'pages.publish',
+  'pages.import',
+  'pages.export',
   'content.create',
   'content.edit.own',
   'content.edit.any',
@@ -72,6 +74,7 @@ export const CORE_CAPABILITIES = [
   'ai.tools.write',
   'ai.providers.manage',
   'ai.audit.read',
+  'apiKeys.manage',
 ] as const
 
 export type CoreCapability = typeof CORE_CAPABILITIES[number]

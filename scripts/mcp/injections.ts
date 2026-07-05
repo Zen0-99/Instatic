@@ -23,7 +23,7 @@ export interface Pack {
 }
 
 let baseBody = ''
-let packs: Pack[] = []
+const packs: Pack[] = []
 let loaded = false
 
 function loadIfNeeded(): void {

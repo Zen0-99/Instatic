@@ -127,6 +127,8 @@ export interface SiteSlice {
   loadSite: (site: SiteDocument) => void
   clearSite: () => void
   updateSiteName: (name: string) => void
+  /** Replace the active page's data from a fresh server fetch without disturbing other UI state. */
+  refreshActivePage: (page: Page) => void
 
   // Page mutations
   addPage: (title: string, slug?: string) => Page

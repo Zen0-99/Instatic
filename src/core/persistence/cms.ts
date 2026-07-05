@@ -103,18 +103,22 @@ export class CmsAdapter implements IPersistenceAdapter {
       this.fetchImpl(`${this.basePath}/site`, {
         method: 'GET',
         credentials: 'include',
+        cache: 'no-store',
       }),
       this.fetchImpl(`${this.basePath}/pages`, {
         method: 'GET',
         credentials: 'include',
+        cache: 'no-store',
       }),
       this.fetchImpl(`${this.basePath}/components`, {
         method: 'GET',
         credentials: 'include',
+        cache: 'no-store',
       }),
       this.fetchImpl(`${this.basePath}/layouts`, {
         method: 'GET',
         credentials: 'include',
+        cache: 'no-store',
       }),
     ])
 

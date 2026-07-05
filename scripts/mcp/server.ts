@@ -20,7 +20,7 @@ import { spawn } from 'node:child_process'
 import { fileURLToPath } from 'node:url'
 import { request as httpRequest } from 'node:http'
 
-// ─── File logger (stderr output is swallowed by Windsurf, so log to file too) ─
+// ─── File logger (stderr is not drained by Windsurf, so log only to file) ───
 
 const LOG_PATH = resolve(process.cwd(), 'mcp-server.log')
 
@@ -29,7 +29,9 @@ function log(...args: unknown[]): void {
   try {
     appendFileSync(LOG_PATH, line)
   } catch { /* ignore */ }
-  console.error(...args)
+  // Intentionally NOT writing to stderr. Windsurf's MCP client does not drain
+  // stderr, so filling the stderr pipe causes an OS pipe-buffer deadlock.
+  // See: https://github.com/patchwright/mcpdrain
 }
 
 // ─── Trace logging ─────────────────────────────────────────────────────────
@@ -43,6 +45,9 @@ const RELAY_HEALTH_URL = `http://127.0.0.1:${MCP_PORT}/health`
 const RELAY_TOOL_URL = `http://127.0.0.1:${MCP_PORT}/mcp/tool`
 const RELAY_TOOLS_LIST_URL = `http://127.0.0.1:${MCP_PORT}/mcp/tools`
 const PID_FILE = resolve(process.cwd(), 'relay-daemon.pid')
+// Windsurf's MCP stdio client can break its pipe on extremely long single-line JSON
+// messages. Cap responses so one huge catalog payload does not kill the session.
+const MAX_RESPONSE_CHARS = parseInt(process.env.MCP_MAX_RESPONSE_CHARS ?? '20000', 10)
 
 // ─── MCP Protocol (stdio) ──────────────────────────────────────────────────
 
@@ -68,16 +73,63 @@ interface McpResponse {
 
 let writeChain: Promise<void> = Promise.resolve()
 
+// Write a chunk with a drain timeout. On Windows, writing more than the pipe
+// buffer can synchronously block the event loop, so we chunk large messages.
+function writeChunk(chunk: string): Promise<void> {
+  return new Promise<void>((resolve, reject) => {
+    const timeout = setTimeout(() => reject(new Error('stdout write timeout (pipe may be broken)')), 5_000)
+    let cleared = false
+    const clear = () => {
+      if (!cleared) {
+        cleared = true
+        clearTimeout(timeout)
+      }
+    }
+    try {
+      const canContinue = process.stdout.write(chunk, (err) => {
+        clear()
+        if (err) reject(err)
+        else resolve()
+      })
+      // If the write returned false, wait for the drain event before resolving.
+      if (!canContinue) {
+        process.stdout.once('drain', () => {
+          clear()
+          resolve()
+        })
+      } else {
+        clear()
+      }
+    } catch (err) {
+      clear()
+      reject(err)
+    }
+  })
+}
+
 function sendResponse(response: McpResponse): void {
   const json = JSON.stringify(response) + '\n'
-  writeChain = writeChain.then(() => new Promise<void>((resolve, reject) => {
-    const timeout = setTimeout(() => reject(new Error('stdout write timeout (pipe may be broken)')), 5_000)
-    process.stdout.write(json, (err) => {
-      clearTimeout(timeout)
-      if (err) reject(err)
-      else resolve()
+  const chunkSize = 1024
+  const chunks: string[] = []
+  for (let i = 0; i < json.length; i += chunkSize) {
+    chunks.push(json.slice(i, i + chunkSize))
+  }
+  // If the response is small, write it in one go.
+  if (chunks.length === 1) {
+    writeChain = writeChain.then(() => writeChunk(chunks[0]!)).catch((err) => {
+      log('[MCP Server] stdout write error:', err instanceof Error ? err.message : String(err))
     })
-  })).catch((err) => {
+    return
+  }
+  // Large responses: write chunks with a yield between each to let the event loop run.
+  writeChain = writeChain.then(async () => {
+    for (let i = 0; i < chunks.length; i++) {
+      await writeChunk(chunks[i]!)
+      if (i < chunks.length - 1) {
+        await new Promise((r) => setImmediate(r))
+      }
+    }
+  }).catch((err) => {
     log('[MCP Server] stdout write error:', err instanceof Error ? err.message : String(err))
     // Continue — one bad write must not block the chain forever.
   })
@@ -226,11 +278,14 @@ async function callRelayTool(
   args: Record<string, unknown>,
   traceId: string,
 ): Promise<unknown> {
+  const payload = { name, arguments: args, traceId }
+  log(`[MCP Server] POST to relay: ${name} (trace ${traceId}) body=${JSON.stringify(payload).length} bytes`)
   const bodyPromise = httpPostJson(
     RELAY_TOOL_URL,
-    { name, arguments: args, traceId },
+    payload,
     RELAY_TOOL_TIMEOUT_MS + 5000,
   ).then((res) => {
+    log(`[MCP Server] Relay response for ${name} (trace ${traceId}): status=${res.status} body=${res.body.length} bytes`)
     if (!res.ok) {
       throw new Error(`Relay tool error: ${res.body.slice(0, 500)}`)
     }
@@ -256,6 +311,7 @@ async function callRelayTool(
 
 async function handleMcpRequest(req: McpRequest): Promise<void> {
   const { id, method, params } = req
+  log(`[MCP Server] Handling request ${id}: ${method}`)
 
   switch (method) {
     case 'initialize': {
@@ -314,10 +370,14 @@ async function handleMcpRequest(req: McpRequest): Promise<void> {
       log(`[MCP Server] Tool call: ${p.name} (trace ${traceId})`)
       try {
         const result = await callRelayTool(p.name, p.arguments ?? {}, traceId)
-        const resultText =
+        let resultText =
           typeof result === 'string' ? result
             : result === undefined ? 'OK'
-            : JSON.stringify(result, null, 2)
+            : JSON.stringify(result)
+        if (resultText.length > MAX_RESPONSE_CHARS) {
+          log(`[MCP Server] Tool ${p.name} (trace ${traceId}) result oversized: ${resultText.length} chars, truncating to ${MAX_RESPONSE_CHARS}`)
+          resultText = resultText.slice(0, MAX_RESPONSE_CHARS) + '\n...[truncated by MCP server]'
+        }
         log(`[MCP Server] Tool ${p.name} (trace ${traceId}) result: ${resultText.slice(0, 200)}`)
         sendResponse({
           jsonrpc: '2.0',

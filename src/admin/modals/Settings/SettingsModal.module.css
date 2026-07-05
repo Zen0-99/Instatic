@@ -502,4 +502,140 @@
     grid-template-columns: minmax(0, 1fr);
     gap: var(--space-2xs);
   }
+
+  .apiKeyCapGrid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+/* ── ApiKeysSection ────────────────────────────────────────────────────────── */
+.apiKeyForm {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-m);
+  margin-bottom: var(--space-3xl);
+}
+
+.apiKeyLabelRow {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-xs);
+}
+
+.apiKeyCaps {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-xs);
+}
+
+.apiKeyCapGrid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: var(--space-xs);
+}
+
+.apiKeyCapRow {
+  padding: var(--space-m) var(--space-l);
+}
+
+.apiKeyCapRow .toggleRowLabel {
+  margin-bottom: 0;
+}
+
+.apiKeyTokenWarning {
+  font-size: var(--text-s);
+  color: var(--text-subtle);
+  margin: 0 0 var(--space-m);
+}
+
+.apiKeyTokenDialog {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-m);
+}
+
+.apiKeyTokenRow {
+  display: flex;
+  align-items: center;
+  gap: var(--space-s);
+  background: var(--bg-surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  padding: var(--space-s) var(--space-m);
+}
+
+.apiKeyToken {
+  font-family: var(--font-mono);
+  font-size: var(--text-s);
+  color: var(--text-bright);
+  word-break: break-all;
+  flex: 1;
+}
+
+.apiKeyList {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: var(--space-px);
+}
+
+.apiKeyListItem {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-m);
+  background: var(--bg-surface-2);
+  border-radius: var(--panel-radius);
+  padding: var(--space-l) var(--space-xl);
+}
+
+.apiKeyListItemMain {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4xs);
+  min-width: 0;
+}
+
+.apiKeyListItemLabel {
+  font-weight: 600;
+  color: var(--text-bright);
+}
+
+.apiKeyListItemMeta {
+  font-size: var(--text-s);
+  color: var(--text-subtle);
+}
+
+.apiKeyDetailsDialog {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-xl);
+}
+
+.apiKeyDetailsGrid {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  gap: var(--space-m) var(--space-xl);
+  font-size: var(--text-m);
+}
+
+.apiKeyDetailsGrid > span:nth-child(odd) {
+  color: var(--text-muted);
+}
+
+.apiKeyDetailsGrid > span:nth-child(even) {
+  color: var(--text-bright);
+}
+
+.apiKeyDetailsActions {
+  display: flex;
+  justify-content: flex-end;
+  gap: var(--space-m);
+}
+
+/* Dialogs and menus opened from inside the settings modal must stack above
+   the modal shell (z-index: --spotlight-z-index + 1). */
+.apiKeyDialogBackdrop {
+  z-index: calc(var(--spotlight-z-index) + 2);
 }

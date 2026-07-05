@@ -5,6 +5,8 @@ interface ServerConfig {
   staticDir: string
   trustedProxyCidrs: string[]
   publicOrigins: string[]
+  /** Local project root for CMS file export (e.g. .instatic/pages). Optional. */
+  projectRoot: string | null
 }
 
 function readCsvList(value: string | undefined): string[] {
@@ -88,5 +90,6 @@ export function readServerConfig(
     staticDir: env.STATIC_DIR ?? './dist',
     trustedProxyCidrs: readCsvList(env.TRUSTED_PROXY_CIDRS),
     publicOrigins: resolvePublicOrigins(env),
+    projectRoot: env.INSTATIC_PROJECT_ROOT?.trim() || null,
   }
 }

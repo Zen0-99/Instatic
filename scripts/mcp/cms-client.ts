@@ -128,6 +128,18 @@ export class CmsClient {
     return this.request(traceId ?? 'cms', 'GET', '/admin/api/cms/site')
   }
 
+  getSiteCatalog(traceId?: string): Promise<unknown> {
+    return this.request(traceId ?? 'cms', 'GET', '/admin/api/cms/site-catalog')
+  }
+
+  getComponents(traceId?: string): Promise<unknown> {
+    return this.request(traceId ?? 'cms', 'GET', '/admin/api/cms/components')
+  }
+
+  getLayouts(traceId?: string): Promise<unknown> {
+    return this.request(traceId ?? 'cms', 'GET', '/admin/api/cms/layouts')
+  }
+
   saveSite(site: object, traceId?: string): Promise<unknown> {
     return this.request(traceId ?? 'cms', 'PUT', '/admin/api/cms/site', { site })
   }
@@ -141,6 +153,11 @@ export class CmsClient {
 
   listPages(traceId?: string): Promise<unknown> {
     return this.request(traceId ?? 'cms', 'GET', '/admin/api/cms/pages')
+  }
+
+  async getPageBySlug(slug: string, traceId?: string): Promise<unknown> {
+    const response = (await this.request(traceId ?? 'cms', 'GET', '/admin/api/cms/pages')) as { rows: Array<{ slug: string } & Record<string, unknown>> }
+    return response.rows.find((row) => row.slug === slug) ?? null
   }
 
   savePages(body: { changedPages: object[]; pageIds: string[]; baselinePageIds?: string[] }, traceId?: string): Promise<unknown> {
@@ -210,6 +227,10 @@ export class CmsClient {
 
   exportHtml(slug: string, traceId?: string): Promise<unknown> {
     return this.request(traceId ?? 'cms', 'GET', `/admin/api/cms/pages/${slug}/export-html`)
+  }
+
+  listClasses(traceId?: string): Promise<unknown> {
+    return this.request(traceId ?? 'cms', 'GET', '/admin/api/cms/classes')
   }
 
   getClass(nameOrId: string, traceId?: string): Promise<unknown> {

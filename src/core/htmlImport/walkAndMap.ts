@@ -68,7 +68,7 @@ export interface ImportFragment {
 interface ImportBodyAttributes {
   classIds?: string[]
   inlineStyles?: Record<string, string>
-  attributes?: Record<string, string>
+  props?: Record<string, unknown>
 }
 
 /** The result returned by the convenience entry point importHtml(). */
@@ -142,7 +142,9 @@ function collectBodyAttributes(
   if (classIds.length > 0) bodyAttrs.classIds = classIds
 
   const attributes = collectDomAttributes(body)
-  if (Object.keys(attributes).length > 0) bodyAttrs.attributes = attributes
+  if (Object.keys(attributes).length > 0) {
+    bodyAttrs.props = { htmlAttributes: attributes }
+  }
 
   const inline = inlineStyles.get(body)
   if (inline && Object.keys(inline).length > 0) bodyAttrs.inlineStyles = inline

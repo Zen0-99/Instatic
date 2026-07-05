@@ -37,7 +37,9 @@ import { handleUserPreferencesRoutes } from './userPreferences'
 import { handleUsersRoutes } from './users'
 import { handleRolesRoutes } from './roles'
 import { handleAuditRoutes } from './audit'
+import { handleApiKeysRoutes } from './apiKeys'
 import { handleSiteRoutes } from './site'
+import { handleSiteCatalogRoute } from './siteCatalog'
 import { handleSiteDocumentRoutes } from './siteDocument'
 import { handlePagesRoutes } from './pages'
 import { handleComponentsRoutes } from './components'
@@ -55,6 +57,10 @@ import { handleExportRoute } from './export'
 import { handleImportPreviewRoute } from './importPreview'
 import { handleImportArchiveRoute } from './importArchive'
 import { handleImportRoute } from './import'
+import { handleImportHtmlRoute } from './importHtml'
+import { handleExportHtmlRoute } from './exportHtml'
+import { handlePageEventsStream } from './pageEvents'
+import { handleClassesRoutes } from './classes'
 
 export type { CmsHandlerOptions } from './shared'
 
@@ -87,11 +93,15 @@ export async function handleCmsRequest(
     ?? (await handleUsersRoutes(req, db))
     ?? (await handleRolesRoutes(req, db))
     ?? (await handleAuditRoutes(req, db))
+    ?? (await handleApiKeysRoutes(req, db))
     ?? (await handleSiteRoutes(req, db))
+    ?? (await handleSiteCatalogRoute(req, db))
     // The transactional whole-document save — must run before the pages/
     // components/layouts GET handlers only for tidiness; paths are distinct.
-    ?? (await handleSiteDocumentRoutes(req, db))
+    ?? (await handleSiteDocumentRoutes(req, db, options))
     ?? (await handlePagesRoutes(req, db))
+    ?? handlePageEventsStream(req)
+    ?? (await handleClassesRoutes(req, db))
     ?? (await handleComponentsRoutes(req, db))
     ?? (await handleLayoutsRoutes(req, db))
     ?? (await handleRuntimeRoutes(req, db))
@@ -119,6 +129,8 @@ export async function handleCmsRequest(
     ?? (await handleImportPreviewRoute(req, db))
     ?? (await handleImportArchiveRoute(req, db, options))
     ?? (await handleImportRoute(req, db, options))
+    ?? (await handleImportHtmlRoute(req, db, options))
+    ?? (await handleExportHtmlRoute(req, db))
 
   return response ?? jsonResponse({ error: 'Not found' }, { status: 404 })
 }

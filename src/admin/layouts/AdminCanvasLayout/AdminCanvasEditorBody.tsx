@@ -10,6 +10,7 @@ import { CanvasRoot } from '@admin/pages/site/canvas'
 import { CodeEditorPanel, CodeEditorSkeleton } from '@admin/pages/site/code-editor'
 import { useActiveLivePath } from '@admin/pages/site/hooks/useActiveLivePath'
 import { useAutoResolveDependencies } from '@admin/pages/site/hooks/useAutoResolveDependencies'
+import { usePageEventStream } from '@admin/pages/site/hooks/usePageEventStream'
 import { LayoutNameDialog } from '@admin/pages/site/dialogs/LayoutNameDialog'
 import { PropertiesPanel } from '@admin/pages/site/panels/PropertiesPanel'
 import { LeftSidebar } from '@admin/pages/site/sidebars/LeftSidebar'
@@ -53,6 +54,9 @@ export function AdminCanvasEditorBody({
   // their own); lives here, in the lazy body, so the CMS fetch it needs for
   // postTypes templates stays out of the admin-shell bundle.
   useActiveLivePath()
+  // Subscribe to SSE page events so the canvas refreshes in real time
+  // when the IDE imports new HTML via the API.
+  usePageEventStream()
 
   const propertiesPanelMode = useEditorStore((s) => s.propertiesPanelMode)
   const rightSidebarExpanded = useEditorStore(selectRightSidebarExpanded)

@@ -193,7 +193,7 @@ function findLanguageServerPid(): number | null {
       : 'language_server_linux'
 
   try {
-    let pids: Array<{ pid: number; cmdline: string }> = []
+    const pids: Array<{ pid: number; cmdline: string }> = []
     if (isWindows) {
       // Try wmic first, fall back to PowerShell
       const result = spawnSync('wmic', [

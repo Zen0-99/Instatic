@@ -45,6 +45,14 @@ export const CAPABILITY_META: Record<CoreCapability, CapabilityMeta> = {
     label: 'Publish pages',
     description: 'Publish or unpublish pages to the live site.',
   },
+  'pages.import': {
+    label: 'Import pages via API',
+    description: 'Let API keys create or replace pages by sending HTML.',
+  },
+  'pages.export': {
+    label: 'Export pages via API',
+    description: 'Let API keys read the current page HTML from the CMS.',
+  },
   'content.create': {
     label: 'Create content',
     description: 'Create new draft posts and content rows.',
@@ -183,6 +191,10 @@ export const CAPABILITY_META: Record<CoreCapability, CapabilityMeta> = {
   'ai.audit.read': {
     label: 'Read AI audit log',
     description: 'View site-wide AI usage, cost, and error events across all users.',
+  },
+  'apiKeys.manage': {
+    label: 'Manage API keys',
+    description: 'Create and revoke personal API keys for import/export automation.',
   },
 }
 

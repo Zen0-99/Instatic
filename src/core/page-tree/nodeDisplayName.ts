@@ -26,18 +26,28 @@
 import type { PageNode } from './pageNode'
 import type { VisualComponent } from '@core/visual-components-schema'
 import { resolveHtmlTagBadge, type AnyModuleDefinition } from '@core/module-engine-schema'
+import { registry } from '@core/module-engine'
 import { classNamesForClassIds, type StyleRuleRegistry } from './classNames'
 import { isDomNode } from './baseNode'
 
 export function getNodeDisplayName(
-  node: Pick<PageNode, 'label' | 'moduleId' | 'props' | 'tag'>,
+  node: Pick<PageNode, 'label' | 'moduleId' | 'props' | 'tag' | 'moduleOverlay'>,
   definition: AnyModuleDefinition | undefined,
   visualComponents: ReadonlyArray<VisualComponent> | undefined,
 ): string {
   if (node.label && node.label.length > 0) return node.label
 
   // DOM-native nodes: use the tag as the display name (e.g. "h1", "div")
-  if (isDomNode(node)) return node.tag!
+  // unless a module overlay is present — then show the module's name
+  // ("Container", "Text", "Link", "Button") so the layers panel matches
+  // CMS conventions.
+  if (isDomNode(node)) {
+    if (node.moduleOverlay) {
+      const overlayDef = node.moduleOverlay.moduleId ? registry.get(node.moduleOverlay.moduleId) : undefined
+      if (overlayDef?.name) return overlayDef.name
+    }
+    return node.tag!
+  }
 
   if (node.moduleId === 'base.visual-component-ref') {
     const componentId = (node.props as Record<string, unknown> | undefined)?.componentId

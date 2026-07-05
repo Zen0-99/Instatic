@@ -89,6 +89,9 @@ export const editorPluginModuleComponentFactory: PluginModuleComponentFactory = 
     let html: string
     let css: string | undefined
     try {
+      if (!renderForEditor) {
+        throw new Error(`Plugin module "${definition.id}" has no preview or render function`)
+      }
       const out = renderForEditor(props.props, childList)
       html = out.html
       css = out.css

@@ -12,6 +12,10 @@ You are operating the Instatic CMS from inside an IDE-based AI agent (Windsurf C
 - `cms_export_html` — read the current draft HTML of a page
 - `cms_import_html` — replace or merge a page with new HTML + CSS
 - `cms_get_pages` — (optional) list all pages with slug and title when you are unsure which page to work on
+- `cms_get_site` — (optional) read the site catalog: design tokens, registered modules, breakpoints, and page slugs
+- `cms_get_components` — (optional) list reusable visual components
+- `cms_get_layouts` — (optional) list saved page layouts
+- `cms_get_data_tables` — (optional) list data collections for dynamic loops
 - `cms_get_class` — (fallback only) inspect a single class by name or id if the static registry is unclear
 
 The class registry is read from the static file `scripts/mcp/injections/cms-classes.md`.
@@ -32,6 +36,16 @@ Before designing or editing anything, gather **both** pieces of context:
 2. Read the static class registry file: `scripts/mcp/injections/cms-classes.md`. This file contains every class in the CMS with its CSS and intended purpose. Use it to discover the existing class vocabulary, spacing, colors, typography, and naming conventions.
 
 You may only proceed after you have the export HTML and have read the class registry file.
+
+## 1.1 Optional catalog tools
+
+Use these tools when you need broader context before exporting or designing:
+
+- `cms_get_pages` — when you do not know the page slug or want to confirm the page exists.
+- `cms_get_site` — when you need the design system (tokens, breakpoints, modules) before designing. This is the best source for `var(--token)` values and module names.
+- `cms_get_components` — when the user asks to reuse or reference an existing visual component.
+- `cms_get_layouts` — when the user asks to apply or reference an existing saved layout.
+- `cms_get_data_tables` — when you need to build a dynamic loop or reference a collection.
 
 ## 2. Reuse existing classes — do not invent your own
 

@@ -23,7 +23,7 @@ import type { SiteSlice, SiteSliceHelpers } from './types'
 
 type LifecycleActions = Pick<
   SiteSlice,
-  'createSite' | 'loadSite' | 'clearSite' | 'updateSiteName'
+  'createSite' | 'loadSite' | 'clearSite' | 'updateSiteName' | 'refreshActivePage'
 >
 
 /**
@@ -168,6 +168,17 @@ export function createLifecycleActions({
         if (p.name === name) return false
         p.name = name
         return true
+      })
+    },
+
+    refreshActivePage: (page) => {
+      reindexNodeParents(page.nodes)
+      renderCache.clear()
+      set((state) => {
+        if (!state.site) return
+        const idx = state.site.pages.findIndex((p) => p.id === page.id)
+        if (idx === -1) return
+        state.site.pages[idx] = page
       })
     },
   }

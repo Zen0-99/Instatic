@@ -1071,4 +1071,24 @@ export const pgMigrations: Migration[] = [
       insert into site_sync_state (id, seq) values (1, 0);
     `,
   },
+  {
+    id: '021_user_api_keys',
+    sql: `
+      create table if not exists user_api_keys (
+        id text primary key,
+        user_id text not null references users(id) on delete cascade,
+        label text not null default '',
+        token_hash text not null unique,
+        capabilities_json jsonb not null default '[]'::jsonb,
+        created_at timestamptz not null default current_timestamp,
+        last_used_at timestamptz,
+        revoked_at timestamptz
+      );
+
+      create index if not exists user_api_keys_user_idx
+        on user_api_keys (user_id);
+      create unique index if not exists user_api_keys_token_hash_idx
+        on user_api_keys (token_hash);
+    `,
+  },
 ]

@@ -339,7 +339,10 @@ export function usePersistence(
     }
 
     window.addEventListener(CMS_SITE_RELOAD_EVENT, handleReload)
-    return () => window.removeEventListener(CMS_SITE_RELOAD_EVENT, handleReload)
+
+    return () => {
+      window.removeEventListener(CMS_SITE_RELOAD_EVENT, handleReload)
+    }
   }, [enabled, requestedSiteId])
 
   // ─── 2. Auto-save (debounced) ──────────────────────────────────────────────

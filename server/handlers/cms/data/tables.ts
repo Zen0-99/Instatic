@@ -56,8 +56,10 @@ import {
   hasContentRowAccess,
   requireCustomTablesManager,
   requireDataAccess,
+  requireDataAccessOrApiKey,
   requireDataCreator,
   requireDataTablesRead,
+  requireDataTablesReadOrApiKey,
 } from './access'
 import { assertSystemTableUpdateAllowed, lockedBuiltInCellKey } from '@core/data/systemTableGuard'
 import { requireStepUp } from '../../../auth/authz'
@@ -146,9 +148,9 @@ async function recordTableAuditEvent(
  * custom table).
  */
 async function requireAnyRead(req: Request, db: DbClient): Promise<AuthUser | Response> {
-  const tablesRead = await requireDataTablesRead(req, db)
+  const tablesRead = await requireDataTablesReadOrApiKey(req, db)
   if (!(tablesRead instanceof Response)) return tablesRead
-  return requireDataAccess(req, db)
+  return requireDataAccessOrApiKey(req, db)
 }
 
 async function handleTablesCollection(req: Request, db: DbClient): Promise<Response> {
