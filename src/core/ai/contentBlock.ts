@@ -30,6 +30,13 @@ const AiToolCallBlockSchema = Type.Object({
   input: Type.Unknown(),
 })
 
+const AiThinkingBlockSchema = Type.Object({
+  kind: Type.Literal('thinking'),
+  text: Type.String(),
+  startedAt: Type.Optional(Type.Number()),
+  done: Type.Optional(Type.Boolean()),
+})
+
 /**
  * The outcome of a tool call, recorded on its `role:'tool'` message.
  *
@@ -52,6 +59,7 @@ const AiToolResultBlockSchema = Type.Object({
 export const AiContentBlockSchema = Type.Union([
   AiTextBlockSchema,
   AiImageBlockSchema,
+  AiThinkingBlockSchema,
   AiToolCallBlockSchema,
   AiToolResultBlockSchema,
 ])

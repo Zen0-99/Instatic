@@ -15,7 +15,9 @@ import { Type } from '@core/utils/typeboxHelpers'
 import { jsonResponse, readValidatedBody, badRequest } from '../../http'
 import { requireCapability } from '../../auth/authz'
 import type { DbClient } from '../../db/client'
+import { AiContentBlockSchema } from '@core/ai'
 import {
+  appendMessage,
   createConversationForUser,
   listConversationsForUserScope,
   listMessagesForConversation,
@@ -23,6 +25,7 @@ import {
   softDeleteConversationForUser,
   toConversationDetailView,
   toConversationView,
+  toMessageView,
   updateConversationForUser,
 } from '../conversations/store'
 import type { ToolScope } from '../runtime/types'
@@ -32,14 +35,18 @@ const VALID_SCOPES: ToolScope[] = ['site', 'content', 'data', 'plugin']
 const CreateBodySchema = Type.Object({
   scope: Type.Union(VALID_SCOPES.map((s) => Type.Literal(s))),
   title: Type.Optional(Type.String()),
-  credentialId: Type.String({ minLength: 1 }),
+  credentialId: Type.Optional(Type.Union([Type.String({ minLength: 1 }), Type.Null()])),
   modelId: Type.String({ minLength: 1 }),
+  providerId: Type.Optional(Type.Union([Type.String({ minLength: 1 }), Type.Null()])),
+  cascadeId: Type.Optional(Type.Union([Type.String({ minLength: 1 }), Type.Null()])),
 })
 
 const UpdateBodySchema = Type.Object({
   title: Type.Optional(Type.String({ minLength: 1 })),
-  credentialId: Type.Optional(Type.String({ minLength: 1 })),
+  credentialId: Type.Optional(Type.Union([Type.String({ minLength: 1 }), Type.Null()])),
   modelId: Type.Optional(Type.String({ minLength: 1 })),
+  providerId: Type.Optional(Type.Union([Type.String({ minLength: 1 }), Type.Null()])),
+  cascadeId: Type.Optional(Type.Union([Type.String({ minLength: 1 }), Type.Null()])),
 })
 
 export function tryHandleAiConversations(
@@ -51,9 +58,13 @@ export function tryHandleAiConversations(
   if (pathname === '/admin/api/ai/conversations') {
     return dispatchCollection(req, db, url)
   }
-  const match = pathname.match(/^\/admin\/api\/ai\/conversations\/([^/]+)$/)
-  if (match) {
-    return dispatchItem(req, db, match[1]!)
+  const itemMatch = pathname.match(/^\/admin\/api\/ai\/conversations\/([^/]+)$/)
+  if (itemMatch) {
+    return dispatchItem(req, db, itemMatch[1]!)
+  }
+  const messagesMatch = pathname.match(/^\/admin\/api\/ai\/conversations\/([^/]+)\/messages$/)
+  if (messagesMatch) {
+    return dispatchMessages(req, db, messagesMatch[1]!)
   }
   return null
 }
@@ -109,6 +120,18 @@ async function dispatchItem(req: Request, db: DbClient, id: string): Promise<Res
   return jsonResponse({ error: 'Method not allowed' }, { status: 405 })
 }
 
+async function dispatchMessages(req: Request, db: DbClient, id: string): Promise<Response> {
+  if (req.method === 'POST') return handleAppendMessage(req, db, id)
+  return jsonResponse({ error: 'Method not allowed' }, { status: 405 })
+}
+
+const AppendMessageBodySchema = Type.Object({
+  role: Type.Union([Type.Literal('user'), Type.Literal('assistant'), Type.Literal('tool')]),
+  content: Type.Array(AiContentBlockSchema),
+  toolCallId: Type.Optional(Type.String()),
+  toolName: Type.Optional(Type.String()),
+})
+
 async function handleRead(req: Request, db: DbClient, id: string): Promise<Response> {
   const userOrResponse = await requireCapability(req, db, 'ai.chat')
   if (userOrResponse instanceof Response) return userOrResponse
@@ -118,6 +141,20 @@ async function handleRead(req: Request, db: DbClient, id: string): Promise<Respo
 
   const messages = await listMessagesForConversation(db, id)
   return jsonResponse({ conversation: toConversationDetailView(conv, messages) })
+}
+
+async function handleAppendMessage(req: Request, db: DbClient, id: string): Promise<Response> {
+  const userOrResponse = await requireCapability(req, db, 'ai.chat')
+  if (userOrResponse instanceof Response) return userOrResponse
+
+  const conv = await readConversationForUser(db, userOrResponse.id, id)
+  if (!conv) return jsonResponse({ error: 'Conversation not found' }, { status: 404 })
+
+  const body = await readValidatedBody(req, AppendMessageBodySchema)
+  if (!body) return badRequest('Invalid request body.')
+
+  const record = await appendMessage(db, id, body)
+  return jsonResponse({ message: toMessageView(record) }, { status: 201 })
 }
 
 async function handleUpdate(req: Request, db: DbClient, id: string): Promise<Response> {

@@ -30,7 +30,8 @@ interface RelayResponse {
   messageId: string
   text: string
   thinking?: string
-  toolCalls?: Array<{ toolName: string; input: unknown; result: unknown }>
+  toolCalls?: Array<{ toolName: string; input: unknown; result?: unknown }>
+  searchCalls?: Array<{ toolName: string; input: unknown }>
   timestamp: number
 }
 
@@ -44,6 +45,8 @@ export class ChatRelayQueue {
   private pending: PendingMessage[] = []
   private responses = new Map<string, RelayResponse[]>()
   private sseControllers = new Map<string, ReadableStreamDefaultController<Uint8Array>>()
+  private closedMessages = new Set<string>()
+  private lastContext = new Map<string, { contextTokens: number; outputTokens?: number; creditCost?: number }>()
   private lastPollTime = 0
   private readonly MCP_SESSION_TIMEOUT_MS = 30_000
 
@@ -124,6 +127,15 @@ export class ChatRelayQueue {
     return this.pendingToolCalls.size > 0
   }
 
+  /** Abort all pending browser tool calls — used when the user stops the turn. */
+  rejectPendingBrowserToolCalls(reason = 'Aborted by user'): void {
+    for (const [id, pending] of this.pendingToolCalls) {
+      clearTimeout(pending.timer)
+      this.pendingToolCalls.delete(id)
+      pending.reject(new Error(reason))
+    }
+  }
+
   /** Called by /chat/tool-result endpoint — resolves a pending tool call. */
   resolveToolCall(toolRequestId: string, result: unknown, error?: string): void {
     const pending = this.pendingToolCalls.get(toolRequestId)
@@ -169,12 +181,19 @@ export class ChatRelayQueue {
     return msgs
   }
 
-  enqueueResponse(messageId: string, text: string, toolCalls?: RelayResponse['toolCalls'], thinking?: string): void {
+  enqueueResponse(
+    messageId: string,
+    text: string,
+    toolCalls?: RelayResponse['toolCalls'],
+    thinking?: string,
+    searchCalls?: RelayResponse['searchCalls'],
+  ): void {
     const response: RelayResponse = {
       messageId,
       text,
       thinking,
       toolCalls,
+      searchCalls,
       timestamp: Date.now(),
     }
     const existing = this.responses.get(messageId) ?? []
@@ -193,14 +212,29 @@ export class ChatRelayQueue {
         log(`[ChatRelay] SSE push to ${messageId}: thinking=${thinking.slice(0, 80)}...`)
         controller.enqueue(new TextEncoder().encode(`data: ${thinkData}\n\n`))
       }
-      const data = JSON.stringify({
-        type: 'response',
-        text,
-        toolCalls,
-        timestamp: response.timestamp,
-      })
-      log(`[ChatRelay] SSE push to ${messageId}: text=${text.slice(0, 80)}...`)
-      controller.enqueue(new TextEncoder().encode(`data: ${data}\n\n`))
+      if (searchCalls && searchCalls.length > 0) {
+        const searchData = JSON.stringify({
+          type: 'search',
+          searchCalls,
+          timestamp: response.timestamp,
+        })
+        log(`[ChatRelay] SSE push to ${messageId}: searchCalls=${searchCalls.length}`)
+        controller.enqueue(new TextEncoder().encode(`data: ${searchData}\n\n`))
+      }
+      if (text || thinking || (toolCalls && toolCalls.length > 0) || (searchCalls && searchCalls.length > 0)) {
+        const data = JSON.stringify({
+          type: 'response',
+          text,
+          toolCalls,
+          thinking,
+          searchCalls,
+          timestamp: response.timestamp,
+        })
+        log(`[ChatRelay] SSE push to ${messageId}: text=${text ? text.slice(0, 80) : '[none]'} tools=${toolCalls?.length ?? 0} search=${searchCalls?.length ?? 0}`)
+        controller.enqueue(new TextEncoder().encode(`data: ${data}\n\n`))
+      } else {
+        log(`[ChatRelay] SSE push to ${messageId}: response frame skipped (empty)`)
+      }
     } else {
       log(`[ChatRelay] No SSE stream for ${messageId} — response buffered`)
     }
@@ -208,6 +242,10 @@ export class ChatRelayQueue {
 
   registerSSEStream(messageId: string, controller: ReadableStreamDefaultController<Uint8Array>): void {
     this.sseControllers.set(messageId, controller)
+
+    // Send the latest context value if we already have one, so the panel
+    // doesn't stay stale until the next poll cycle.
+    this.emitContext(messageId)
 
     // Send any already-queued responses
     const existing = this.responses.get(messageId) ?? []
@@ -220,13 +258,34 @@ export class ChatRelayQueue {
         })
         controller.enqueue(new TextEncoder().encode(`data: ${thinkData}\n\n`))
       }
-      const data = JSON.stringify({
-        type: 'response',
-        text: resp.text,
-        toolCalls: resp.toolCalls,
-        timestamp: resp.timestamp,
-      })
-      controller.enqueue(new TextEncoder().encode(`data: ${data}\n\n`))
+      if (resp.searchCalls && resp.searchCalls.length > 0) {
+        const searchData = JSON.stringify({
+          type: 'search',
+          searchCalls: resp.searchCalls,
+          timestamp: resp.timestamp,
+        })
+        controller.enqueue(new TextEncoder().encode(`data: ${searchData}\n\n`))
+      }
+      if (resp.text || resp.thinking || (resp.toolCalls && resp.toolCalls.length > 0) || (resp.searchCalls && resp.searchCalls.length > 0)) {
+        const data = JSON.stringify({
+          type: 'response',
+          text: resp.text,
+          toolCalls: resp.toolCalls,
+          thinking: resp.thinking,
+          searchCalls: resp.searchCalls,
+          timestamp: resp.timestamp,
+        })
+        controller.enqueue(new TextEncoder().encode(`data: ${data}\n\n`))
+      }
+    }
+
+    // If the relay already finished this message before the CMS stream opened,
+    // flush and close immediately so the client is not stuck waiting.
+    if (this.closedMessages.has(messageId)) {
+      const done = JSON.stringify({ type: 'done' })
+      controller.enqueue(new TextEncoder().encode(`data: ${done}\n\n`))
+      controller.close()
+      this.sseControllers.delete(messageId)
     }
   }
 
@@ -235,11 +294,17 @@ export class ChatRelayQueue {
   }
 
   closeStream(messageId: string): void {
+    this.closedMessages.add(messageId)
+    this.lastContext.delete(messageId)
     const controller = this.sseControllers.get(messageId)
     if (controller) {
-      const data = JSON.stringify({ type: 'done' })
-      controller.enqueue(new TextEncoder().encode(`data: ${data}\n\n`))
-      controller.close()
+      try {
+        const data = JSON.stringify({ type: 'done' })
+        controller.enqueue(new TextEncoder().encode(`data: ${data}\n\n`))
+        controller.close()
+      } catch {
+        // Stream may already be closed; ignore.
+      }
       this.sseControllers.delete(messageId)
     }
   }
@@ -250,6 +315,29 @@ export class ChatRelayQueue {
 
   hasResponse(messageId: string): boolean {
     return (this.responses.get(messageId)?.length ?? 0) > 0
+  }
+
+  enqueueContext(messageId: string, contextTokens: number, outputTokens?: number, creditCost?: number): void {
+    this.lastContext.set(messageId, { contextTokens, outputTokens, creditCost })
+    const controller = this.sseControllers.get(messageId)
+    if (controller) {
+      const data = JSON.stringify({ type: 'context', contextTokens, outputTokens, creditCost, timestamp: Date.now() })
+      log(`[ChatRelay] SSE push to ${messageId}: context=${contextTokens} output=${outputTokens ?? 0} credits=${creditCost ?? 0}`)
+      try {
+        controller.enqueue(new TextEncoder().encode(`data: ${data}\n\n`))
+      } catch { /* stream may be closed */ }
+    }
+  }
+
+  private emitContext(messageId: string): void {
+    const ctx = this.lastContext.get(messageId)
+    const controller = this.sseControllers.get(messageId)
+    if (ctx && controller) {
+      const data = JSON.stringify({ type: 'context', ...ctx, timestamp: Date.now() })
+      try {
+        controller.enqueue(new TextEncoder().encode(`data: ${data}\n\n`))
+      } catch { /* stream may be closed */ }
+    }
   }
 }
 

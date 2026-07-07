@@ -23,6 +23,8 @@ export interface ConversationRecord {
   readonly title: string
   readonly credentialId: string | null
   readonly modelId: string
+  readonly providerId: string | null
+  readonly cascadeId: string | null
   readonly promptTokensTotal: number
   readonly completionTokensTotal: number
   readonly costUsdTotal: number
@@ -69,6 +71,8 @@ export interface ConversationView {
   readonly title: string
   readonly credentialId: string | null
   readonly modelId: string
+  readonly providerId: string | null
+  readonly cascadeId: string | null
   readonly promptTokensTotal: number
   readonly completionTokensTotal: number
   readonly costUsdTotal: number
@@ -101,14 +105,18 @@ export interface ConversationDetailView extends ConversationView {
 export interface CreateConversationInput {
   readonly scope: ToolScope
   readonly title?: string
-  readonly credentialId: string
+  readonly credentialId?: string | null
   readonly modelId: string
+  readonly providerId?: string | null
+  readonly cascadeId?: string | null
 }
 
 export interface UpdateConversationInput {
   readonly title?: string
-  readonly credentialId?: string
+  readonly credentialId?: string | null
   readonly modelId?: string
+  readonly providerId?: string | null
+  readonly cascadeId?: string | null
 }
 
 export interface AppendMessageInput {

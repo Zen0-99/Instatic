@@ -9,6 +9,17 @@ import { useAgentStore } from '@admin/ai/useAgentStore'
 import { ModelPicker as SharedModelPicker } from '@admin/ai/ModelPicker'
 import type { CredentialView } from '@admin/ai/api'
 
+const CASCADE_CREDENTIAL: CredentialView = {
+  id: 'cascade',
+  providerId: 'cascade',
+  authMode: 'apiKey',
+  displayLabel: 'Cascade',
+  baseUrl: null,
+  keyFingerprintCurrent: true,
+  createdAt: new Date().toISOString(),
+  lastUsedAt: new Date().toISOString(),
+}
+
 interface ModelPickerProps {
   /** Optional extra className for the trigger wrapper. */
   className?: string
@@ -18,6 +29,8 @@ interface ModelPickerProps {
   credentialsLoaded: boolean
   /** Re-run the credential list query when the picker opens. */
   onRefreshCredentials: () => void
+  /** Live connection status of the local Cascade relay daemon. */
+  cascadeConnected?: boolean
 }
 
 export function ModelPicker({
@@ -25,14 +38,18 @@ export function ModelPicker({
   credentials,
   credentialsLoaded,
   onRefreshCredentials,
+  cascadeConnected,
 }: ModelPickerProps) {
   const activeCredentialId = useAgentStore((s) => s.agentActiveCredentialId)
   const activeModelId = useAgentStore((s) => s.agentActiveModelId)
+  const activeProviderId = useAgentStore((s) => s.agentActiveProviderId)
   const setAgentProvider = useAgentStore((s) => s.setAgentProvider)
 
+  const allCredentials = [CASCADE_CREDENTIAL, ...credentials]
+
   const value =
-    activeCredentialId && activeModelId
-      ? { credentialId: activeCredentialId, modelId: activeModelId }
+    activeModelId && (activeCredentialId || activeProviderId === 'cascade')
+      ? { credentialId: activeCredentialId ?? CASCADE_CREDENTIAL.id, modelId: activeModelId }
       : null
 
   return (
@@ -40,11 +57,15 @@ export function ModelPicker({
       className={className}
       variant="inline"
       placeholder="Choose a model"
-      credentials={credentials}
+      credentials={allCredentials}
       credentialsLoaded={credentialsLoaded}
       value={value}
       onOpen={onRefreshCredentials}
-      onChange={({ credentialId, modelId }) => void setAgentProvider(credentialId, modelId)}
+      connectionStatus={cascadeConnected !== undefined ? { cascade: cascadeConnected } : undefined}
+      onChange={({ credentialId, modelId }) => {
+        const isCascade = credentialId === CASCADE_CREDENTIAL.id
+        void setAgentProvider(isCascade ? null : credentialId, modelId, isCascade ? 'cascade' : undefined)
+      }}
     />
   )
 }

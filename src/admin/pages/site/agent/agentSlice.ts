@@ -24,6 +24,7 @@ import {
   getConversation,
   deleteConversation,
   updateConversationProvider,
+  appendConversationMessage,
 } from '@admin/ai/api'
 import {
   createConversationForScope,
@@ -101,6 +102,20 @@ async function ensureConversationId(
   const existing = get().agentConversationId
   if (existing) return existing
 
+  const isCascade = get().agentActiveProviderId === 'cascade'
+  if (isCascade) {
+    const modelId = get().agentActiveModelId
+    if (!modelId) return null
+    const conv = await createConversationForScope(config.scope, null, modelId, 'cascade', null)
+    set((state) => {
+      state.agentConversationId = conv.id
+      state.agentActiveCredentialId = null
+      state.agentActiveModelId = modelId
+      state.agentActiveProviderId = 'cascade'
+    })
+    return conv.id
+  }
+
   const creds = await resolveScopeCredentials(get, config)
   if (!creds) return null
 
@@ -124,7 +139,10 @@ type ConversationResetKeys =
   | 'agentConversationId'
   | 'agentActiveCredentialId'
   | 'agentActiveModelId'
+  | 'agentActiveProviderId'
   | 'agentContextTokens'
+  | 'agentOutputTokens'
+  | 'agentCreditCost'
 
 function conversationResetState(): Pick<AgentSlice, ConversationResetKeys> {
   return {
@@ -133,7 +151,10 @@ function conversationResetState(): Pick<AgentSlice, ConversationResetKeys> {
     agentConversationId: null,
     agentActiveCredentialId: null,
     agentActiveModelId: null,
+    agentActiveProviderId: null,
     agentContextTokens: null,
+    agentOutputTokens: null,
+    agentCreditCost: null,
   }
 }
 
@@ -177,6 +198,10 @@ export function createAgentSlice(
   // AbortController held in closure (not reactive — intentional, not needed in UI)
   let _abortController: AbortController | null = null
 
+  // Active relay message id for the cascade path; used when the user presses
+  // stop so we can also tell the long-lived relay to abort the current turn.
+  let _activeRelayMessageId: string | null = null
+
   // rAF-buffered text accumulation (Guideline #254). Pending deltas are
   // flushed once per animation frame, OR explicitly before any tool-call
   // block is added so chronological ordering is preserved.
@@ -196,6 +221,17 @@ export function createAgentSlice(
       last.text += text
     } else {
       msg.blocks.push({ kind: 'text', text })
+    }
+  }
+
+  function markLastThinkingDone(msg: AgentMessage): void {
+    for (let i = msg.blocks.length - 1; i >= 0; i--) {
+      const block = msg.blocks[i]
+      if (block.kind === 'thinking') {
+        if (block.done) break
+        block.done = true
+        break
+      }
     }
   }
 
@@ -241,8 +277,11 @@ export function createAgentSlice(
     agentConversationId: null,
     agentActiveCredentialId: null,
     agentActiveModelId: null,
+    agentActiveProviderId: null,
     agentConversations: [],
     agentContextTokens: null,
+    agentOutputTokens: null,
+    agentCreditCost: null,
     agentCascadeRelay: false,
     agentCascadeModelId: null,
 
@@ -264,6 +303,13 @@ export function createAgentSlice(
     abortAgent() {
       _abortController?.abort()
       _abortController = null
+      if (get().agentActiveProviderId === 'cascade' && _activeRelayMessageId) {
+        // Fire-and-forget: the relay may or may not have an active turn, but
+        // telling it to abort prevents the next message from being queued
+        // behind a stuck one.
+        void fetch(`http://localhost:9876/chat/abort/${_activeRelayMessageId}`, { method: 'POST' }).catch(() => {})
+      }
+      _activeRelayMessageId = null
       set({ isAgentStreaming: false })
     },
 
@@ -276,6 +322,16 @@ export function createAgentSlice(
       // composer stays ready (provider + model picked) instead of dropping to
       // the "choose a model" lock. `loadScopeDefault` only fills the gap when
       // nothing is chosen — exactly the post-reset state.
+      const prevConversationId = get().agentConversationId
+      const prevProviderId = get().agentActiveProviderId
+      if (prevProviderId === 'cascade' && prevConversationId) {
+        // Tell the relay to drop the Cascade session tied to this conversation.
+        fetch('http://localhost:9876/chat/reset', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ conversationId: prevConversationId }),
+        }).catch((err) => console.error('[AgentSlice] Failed to reset Cascade session:', err))
+      }
       get().clearAgentMessages()
       void get().loadScopeDefault()
     },
@@ -302,11 +358,14 @@ export function createAgentSlice(
           agentConversationId: conv.id,
           agentActiveCredentialId: conv.credentialId,
           agentActiveModelId: conv.modelId,
+          agentActiveProviderId: conv.providerId,
           agentMessages: rehydrateMessages(conv.messages),
           agentError: null,
           // Restore the meter from the persisted snapshot (0 → null so the
           // meter reads as "empty" against the window until the next turn).
           agentContextTokens: conv.contextTokens > 0 ? conv.contextTokens : null,
+          agentOutputTokens: null,
+          agentCreditCost: null,
         })
       } catch (err) {
         console.error('[AgentSlice] Failed to load conversation:', err)
@@ -343,8 +402,10 @@ export function createAgentSlice(
       }
     },
 
-    async setAgentProvider(credentialId: string, modelId: string) {
+    async setAgentProvider(credentialId: string, modelId: string, providerId?: string) {
       const currentId = get().agentConversationId
+      const isCascade = providerId === 'cascade' || (!credentialId && get().agentActiveProviderId === 'cascade')
+      const resolvedProviderId = isCascade ? 'cascade' : providerId ?? null
       // Always reflect the picker selection locally so the dropdown's
       // displayed value updates immediately. Clearing agentError is essential:
       // a prior send with no configured default leaves a sticky "no provider
@@ -356,11 +417,12 @@ export function createAgentSlice(
       set({
         agentActiveCredentialId: credentialId,
         agentActiveModelId: modelId,
+        agentActiveProviderId: resolvedProviderId,
         agentError: null,
       })
       if (!currentId) return  // staged for the next conversation-create call
       try {
-        await updateConversationProvider(currentId, credentialId, modelId)
+        await updateConversationProvider(currentId, credentialId, modelId, resolvedProviderId, null)
       } catch (err) {
         console.error('[AgentSlice] Failed to update provider:', err)
         set({ agentError: 'Failed to update conversation provider.' })
@@ -398,7 +460,7 @@ export function createAgentSlice(
         const next = !state.agentCascadeRelay
         state.agentCascadeRelay = next
         if (next && !state.agentCascadeModelId) {
-          state.agentCascadeModelId = 'kimi-k2-6'
+          state.agentCascadeModelId = 'glm-5-2'
         }
       })
     },
@@ -436,13 +498,23 @@ export function createAgentSlice(
       const bridge: AgentBridgeRuntime = { bridgeId: null }
 
       // ── Cascade relay path ──────────────────────────────────────────────
-      // When the "IDE Cascade" toggle is ON, route the message through the
-      // local MCP server's HTTP relay instead of the native AI provider.
-      if (get().agentCascadeRelay) {
+      // When the active provider is "cascade", route the message through the
+      // local MCP server's HTTP relay. The conversation row is created or
+      // reused so the thread persists across CMS reloads.
+      if (get().agentActiveProviderId === 'cascade') {
         try {
-          const relayUrl = import.meta.env.DEV
-            ? 'http://localhost:9876'
-            : 'http://localhost:9876'
+          const relayUrl = 'http://localhost:9876'
+
+          const conversationId = await ensureConversationId(get, set, config)
+          if (!conversationId) {
+            surfaceAssistantError(
+              set,
+              assistantId,
+              'No Cascade model selected. Pick a model in the composer before sending.',
+              '_(no Cascade model selected)_',
+            )
+            return
+          }
 
           const snapshot = config.buildSnapshot?.()
           const res = await fetch(`${relayUrl}/chat/message`, {
@@ -450,7 +522,8 @@ export function createAgentSlice(
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
               text: content,
-              modelUid: get().agentCascadeModelId ?? undefined,
+              conversationId,
+              modelUid: get().agentActiveModelId ?? undefined,
               snapshot,
             }),
             signal: _abortController.signal,
@@ -461,6 +534,7 @@ export function createAgentSlice(
           }
 
           const { messageId } = await res.json() as { messageId: string }
+          _activeRelayMessageId = messageId
 
           // Open SSE stream for the response
           const sseRes = await fetch(`${relayUrl}/chat/stream/${messageId}`, {
@@ -489,7 +563,9 @@ export function createAgentSlice(
                 const event = JSON.parse(json) as {
                   type: string
                   text?: string
-                  toolCalls?: Array<{ toolName: string; input: unknown; result: unknown }>
+                  thinking?: string
+                  toolCalls?: Array<{ toolName: string; input: unknown; result?: unknown }>
+                  searchCalls?: Array<{ toolName: string; input: unknown }>
                   toolRequestId?: string
                   name?: string
                   args?: unknown
@@ -500,17 +576,48 @@ export function createAgentSlice(
                   set((state) => {
                     const msg = state.agentMessages.find((m) => m.id === assistantId)
                     if (msg) {
-                      msg.blocks.push({ kind: 'thinking', text: thinkingText })
+                      const last = msg.blocks[msg.blocks.length - 1]
+                      if (last && last.kind === 'thinking' && !last.done) {
+                        last.text += thinkingText
+                      } else {
+                        msg.blocks.push({ kind: 'thinking', text: thinkingText, startedAt: Date.now() })
+                      }
                     }
                   })
-                } else if (event.type === 'response' && event.text) {
-                  appendTextDelta(assistantId, event.text)
-                  if (event.toolCalls) {
+                } else if (event.type === 'search' && event.searchCalls) {
+                  flushPendingText()
+                  const calls = event.searchCalls
+                  set((state) => {
+                    const msg = state.agentMessages.find((m) => m.id === assistantId)
+                    if (msg) {
+                      for (const call of calls) {
+                        msg.blocks.push({
+                          kind: 'toolCall',
+                          toolCall: {
+                            id: nanoid(),
+                            actionType: call.toolName,
+                            params: call.input as Record<string, unknown>,
+                            result: null,
+                            status: 'success',
+                          },
+                        })
+                      }
+                    }
+                  })
+                } else if (event.type === 'response' && (event.text || event.thinking || event.toolCalls?.length)) {
+                  set((state) => {
+                    const msg = state.agentMessages.find((m) => m.id === assistantId)
+                    if (msg) markLastThinkingDone(msg)
+                  })
+                  if (event.text) {
+                    appendTextDelta(assistantId, event.text)
+                  }
+                  if (event.toolCalls?.length) {
                     flushPendingText()
                     set((state) => {
                       const msg = state.agentMessages.find((m) => m.id === assistantId)
                       if (msg) {
-                        for (const tc of event.toolCalls!) {
+                        for (const tc of event.toolCalls ?? []) {
                           msg.blocks.push({
                             kind: 'toolCall',
                             toolCall: {
@@ -609,7 +716,25 @@ export function createAgentSlice(
                     console.error(`[AgentSlice] tool-result POST error (trace ${traceId}): ${postMsg}`)
                   }
                 } else if (event.type === 'done') {
+                  flushPendingText()
+                  set((state) => {
+                    state.isAgentStreaming = false
+                    const msg = state.agentMessages.find((m) => m.id === assistantId)
+                    if (msg) {
+                      msg.isComplete = true
+                      markLastThinkingDone(msg)
+                    }
+                  })
                   break
+                } else if (event.type === 'context') {
+                  const ctx = event as { contextTokens?: number; outputTokens?: number; creditCost?: number }
+                  if (typeof ctx.contextTokens === 'number') {
+                    set((state) => {
+                      state.agentContextTokens = ctx.contextTokens
+                      if (typeof ctx.outputTokens === 'number') state.agentOutputTokens = ctx.outputTokens
+                      if (typeof ctx.creditCost === 'number') state.agentCreditCost = ctx.creditCost
+                    })
+                  }
                 }
               } catch { /* skip malformed SSE */ }
             }
@@ -630,11 +755,45 @@ export function createAgentSlice(
           }
         } finally {
           _abortController = null
+          _activeRelayMessageId = null
           set((state) => {
             state.isAgentStreaming = false
             const msg = state.agentMessages.find((m) => m.id === assistantId)
-            if (msg) msg.isComplete = true
+            if (msg) {
+              msg.isComplete = true
+              markLastThinkingDone(msg)
+            }
           })
+          // Persist the turn to the conversation row so history survives reloads.
+          const conversationId = get().agentConversationId
+          if (conversationId) {
+            try {
+              const assistantMsg = get().agentMessages.find((m) => m.id === assistantId)
+              const assistantContent = assistantMsg
+                ? assistantMsg.blocks
+                    .filter((b) => b.kind === 'text' || b.kind === 'thinking')
+                    .map((b) =>
+                      b.kind === 'text'
+                        ? { kind: 'text' as const, text: b.text }
+                        : { kind: 'thinking' as const, text: b.text, startedAt: b.startedAt, done: b.done },
+                    )
+                : []
+              await Promise.all([
+                appendConversationMessage(conversationId, {
+                  role: 'user',
+                  content: [{ kind: 'text', text: content }],
+                }),
+                assistantContent.length > 0
+                  ? appendConversationMessage(conversationId, {
+                      role: 'assistant',
+                      content: assistantContent,
+                    })
+                  : Promise.resolve(),
+              ])
+            } catch (persistErr) {
+              console.error('[AgentSlice] Failed to persist Cascade turn:', persistErr)
+            }
+          }
         }
         return
       }
@@ -726,10 +885,14 @@ export function createAgentSlice(
         }
       } finally {
         _abortController = null
+        _activeRelayMessageId = null
         set((state) => {
           state.isAgentStreaming = false
           const msg = state.agentMessages.find((m) => m.id === assistantId)
-          if (msg) msg.isComplete = true
+          if (msg) {
+            msg.isComplete = true
+            markLastThinkingDone(msg)
+          }
         })
       }
     },

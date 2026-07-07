@@ -1155,4 +1155,18 @@ export const sqliteMigrations: Migration[] = [
         on user_api_keys (token_hash);
     `,
   },
+  {
+    id: '022_ai_cascade_conversations',
+    sql: `
+      -- ─── Cascade chat provider support ─────────────────────────────────────
+      --
+      -- Stores the provider name (e.g. 'anthropic', 'openai', 'cascade') and,
+      -- for Cascade conversations, the Windsurf cascade session id so the
+      -- thread can be resumed across CMS reloads and new-chat boundaries.
+      -- provider_id is nullable for backwards compatibility; existing rows
+      -- are treated as provider = credential.provider_id when provider_id is null.
+      alter table ai_conversations add column provider_id text;
+      alter table ai_conversations add column cascade_id text;
+    `,
+  },
 ]

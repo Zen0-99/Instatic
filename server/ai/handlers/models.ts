@@ -19,7 +19,14 @@ import { getModelCatalogue, pricingKey } from '../pricing'
 import type { AiProviderModel } from '../drivers/types'
 import type { AiProviderId } from '../runtime/types'
 
-const VALID_PROVIDERS: AiProviderId[] = ['anthropic', 'openai', 'ollama', 'openrouter', 'openai-compatible']
+const VALID_PROVIDERS: AiProviderId[] = ['anthropic', 'openai', 'ollama', 'openrouter', 'openai-compatible', 'cascade']
+
+const CASCADE_HARDCODED_MODELS: AiProviderModel[] = [
+  { id: 'glm-5-2', label: 'GLM-5.2 High', capabilities: { toolCalling: true, visionInput: false, promptCache: false, streaming: true }, pricing: { inputPerMTok: 0, outputPerMTok: 0 }, contextWindow: 200_000 },
+  { id: 'kimi-k2-7', label: 'Kimi K2.7', capabilities: { toolCalling: true, visionInput: false, promptCache: false, streaming: true }, pricing: { inputPerMTok: 0, outputPerMTok: 0 }, contextWindow: 262_000 },
+  { id: 'swe-1-6', label: 'SWE 1.6', capabilities: { toolCalling: true, visionInput: false, promptCache: false, streaming: true }, pricing: { inputPerMTok: 0, outputPerMTok: 0 }, contextWindow: 200_000 },
+  { id: 'claude-opus-4-8-medium', label: 'Claude Opus 4.8', capabilities: { toolCalling: true, visionInput: false, promptCache: false, streaming: true }, pricing: { inputPerMTok: 5, outputPerMTok: 25 }, contextWindow: 1_000_000 },
+]
 
 export function tryHandleAiModels(
   req: Request,
@@ -51,6 +58,11 @@ async function handleModels(
     )
   }
   const providerId = providerParam as AiProviderId
+
+  if (providerId === 'cascade') {
+    return listCascadeModels()
+  }
+
   const driver = resolveDriver(providerId)
 
   // Optional credential — when the picker has one selected, decrypt it
@@ -94,6 +106,37 @@ async function handleModels(
       ? await enrichFromCatalogue(db, models)
       : models
   return jsonResponse({ models: enriched })
+}
+
+async function listCascadeModels(): Promise<Response> {
+  const relayUrl = process.env.INSTATIC_MCP_URL ?? 'http://localhost:9876'
+  try {
+    const controller = new AbortController()
+    const timeout = setTimeout(() => controller.abort(), 10_000)
+    const res = await fetch(`${relayUrl}/models`, { method: 'GET', signal: controller.signal })
+    clearTimeout(timeout)
+    if (!res.ok) {
+      return jsonResponse({ models: CASCADE_HARDCODED_MODELS })
+    }
+    const body = await res.json() as { models?: Array<Partial<AiProviderModel> & { id: string; label: string }> }
+    const models = Array.isArray(body.models) && body.models.length > 0
+      ? body.models.map((m) => ({
+          id: m.id,
+          label: m.label,
+          capabilities: m.capabilities ?? {
+            toolCalling: true,
+            visionInput: false,
+            promptCache: false,
+            streaming: true,
+          },
+          ...('pricing' in m && m.pricing ? { pricing: m.pricing } : {}),
+          ...('contextWindow' in m && typeof m.contextWindow === 'number' ? { contextWindow: m.contextWindow } : {}),
+        }))
+      : CASCADE_HARDCODED_MODELS
+    return jsonResponse({ models })
+  } catch {
+    return jsonResponse({ models: CASCADE_HARDCODED_MODELS })
+  }
 }
 
 async function enrichFromCatalogue(

@@ -41,7 +41,7 @@ export function encodeStreamEvent(event: AiStreamEvent): Uint8Array {
  * Long enough for a slow-but-legitimate editor write to complete, short enough
  * that a dead/closed tab doesn't hang the SDK stream forever (ISS-030).
  */
-const BROWSER_TOOL_TIMEOUT_MS = 90_000
+const BROWSER_TOOL_TIMEOUT_MS = 120_000
 
 interface PendingToolResolver {
   resolve(result: AiToolOutput): void

@@ -13,6 +13,7 @@ import { isStateChangingMethod, originAllowed } from '../../auth/security'
 import { tryHandleAiAudit } from './audit'
 import { tryHandleAiChat } from './chat'
 import { tryHandleAiToolResult } from './toolResult'
+import { tryHandleAiExecuteTool } from './executeTool'
 import { tryHandleAiCredentials } from './credentials'
 import { tryHandleAiConversations } from './conversations'
 import { tryHandleAiDefaults } from './defaults'
@@ -43,6 +44,7 @@ export function tryHandleAi(
     tryHandleAiEditorBridge(req, db, pathname) ??
     tryHandleAiAudit(req, db, url, pathname) ??
     tryHandleAiChat(req, db, pathname) ??
+    tryHandleAiExecuteTool(req, db, pathname) ??
     tryHandleAiToolResult(req, db, pathname) ??
     tryHandleAiCredentials(req, db, pathname) ??
     tryHandleAiConversations(req, db, url, pathname) ??

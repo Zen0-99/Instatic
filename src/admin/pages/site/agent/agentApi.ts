@@ -121,6 +121,8 @@ export function rehydrateMessages(
     for (const block of rec.content) {
       if (block.kind === 'text') {
         msg.blocks.push({ kind: 'text', text: block.text })
+      } else if (block.kind === 'thinking') {
+        msg.blocks.push({ kind: 'thinking', text: block.text, startedAt: block.startedAt ?? (Date.parse(rec.createdAt) || Date.now()), done: block.done })
       } else if (block.kind === 'toolCall') {
         const toolCall: AgentToolCall = {
           id: nanoid(),
@@ -174,12 +176,15 @@ type CreatedConversation = Static<typeof CreatedConversationEnvelopeSchema>['con
 
 export async function createConversationForScope(
   scope: AgentToolScope,
-  credentialId: string,
+  credentialId: string | null,
   modelId: string,
+  providerId?: string | null,
+  cascadeId?: string | null,
+  title?: string,
 ): Promise<CreatedConversation> {
   const body = await apiRequest(AI_CONVERSATIONS_PATH, {
     method: 'POST',
-    body: { scope, credentialId, modelId },
+    body: { scope, credentialId, modelId, providerId, cascadeId, title },
     schema: CreatedConversationEnvelopeSchema,
     fallbackMessage: 'Conversation create failed',
   })

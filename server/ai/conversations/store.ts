@@ -38,6 +38,8 @@ interface ConversationRow {
   title: string
   credential_id: string | null
   model_id: string
+  provider_id: string | null
+  cascade_id: string | null
   prompt_tokens_total: number | string
   completion_tokens_total: number | string
   cost_usd_total: number | string
@@ -79,6 +81,8 @@ function conversationRowToRecord(row: ConversationRow): ConversationRecord {
     title: row.title,
     credentialId: row.credential_id,
     modelId: row.model_id,
+    providerId: row.provider_id,
+    cascadeId: row.cascade_id,
     promptTokensTotal: toNumber(row.prompt_tokens_total),
     completionTokensTotal: toNumber(row.completion_tokens_total),
     costUsdTotal: toNumber(row.cost_usd_total),
@@ -136,6 +140,8 @@ export function toConversationView(record: ConversationRecord): ConversationView
     title: record.title,
     credentialId: record.credentialId,
     modelId: record.modelId,
+    providerId: record.providerId,
+    cascadeId: record.cascadeId,
     promptTokensTotal: record.promptTokensTotal,
     completionTokensTotal: record.completionTokensTotal,
     costUsdTotal: record.costUsdTotal,
@@ -147,7 +153,7 @@ export function toConversationView(record: ConversationRecord): ConversationView
   }
 }
 
-function toMessageView(record: MessageRecord): MessageView {
+export function toMessageView(record: MessageRecord): MessageView {
   return {
     id: record.id,
     position: record.position,
@@ -183,7 +189,7 @@ export async function listConversationsForUserScope(
   scope: ToolScope,
 ): Promise<ConversationRecord[]> {
   const { rows } = await db<ConversationRow>`
-    select id, user_id, scope, title, credential_id, model_id,
+    select id, user_id, scope, title, credential_id, model_id, provider_id, cascade_id,
            prompt_tokens_total, completion_tokens_total,
            cost_usd_total, cache_read_tokens_total, cache_creation_tokens_total,
            context_tokens, created_at, updated_at, deleted_at
@@ -206,7 +212,7 @@ export async function readConversationForUser(
   conversationId: string,
 ): Promise<ConversationRecord | null> {
   const { rows } = await db<ConversationRow>`
-    select id, user_id, scope, title, credential_id, model_id,
+    select id, user_id, scope, title, credential_id, model_id, provider_id, cascade_id,
            prompt_tokens_total, completion_tokens_total,
            cost_usd_total, cache_read_tokens_total, cache_creation_tokens_total,
            context_tokens, created_at, updated_at, deleted_at
@@ -273,13 +279,14 @@ export async function createConversationForUser(
   const title = (input.title ?? '').trim() || DEFAULT_CONVERSATION_TITLE
   const { rows } = await db<ConversationRow>`
     insert into ai_conversations (
-      id, user_id, scope, title, credential_id, model_id
+      id, user_id, scope, title, credential_id, model_id, provider_id, cascade_id
     )
     values (
       ${id}, ${userId}, ${input.scope}, ${title},
-      ${input.credentialId}, ${input.modelId}
+      ${input.credentialId ?? null}, ${input.modelId},
+      ${input.providerId ?? null}, ${input.cascadeId ?? null}
     )
-    returning id, user_id, scope, title, credential_id, model_id,
+    returning id, user_id, scope, title, credential_id, model_id, provider_id, cascade_id,
               prompt_tokens_total, completion_tokens_total,
               cost_usd_total, cache_read_tokens_total, cache_creation_tokens_total,
            context_tokens, created_at, updated_at, deleted_at
@@ -304,15 +311,21 @@ export async function updateConversationForUser(
     patch.credentialId !== undefined ? patch.credentialId : existing.credentialId
   const nextModelId =
     patch.modelId !== undefined ? patch.modelId : existing.modelId
+  const nextProviderId =
+    patch.providerId !== undefined ? patch.providerId : existing.providerId
+  const nextCascadeId =
+    patch.cascadeId !== undefined ? patch.cascadeId : existing.cascadeId
 
   const { rows } = await db<ConversationRow>`
     update ai_conversations
     set title = ${nextTitle},
         credential_id = ${nextCredentialId},
         model_id = ${nextModelId},
+        provider_id = ${nextProviderId},
+        cascade_id = ${nextCascadeId},
         updated_at = current_timestamp
     where id = ${conversationId} and user_id = ${userId}
-    returning id, user_id, scope, title, credential_id, model_id,
+    returning id, user_id, scope, title, credential_id, model_id, provider_id, cascade_id,
               prompt_tokens_total, completion_tokens_total,
               cost_usd_total, cache_read_tokens_total, cache_creation_tokens_total,
            context_tokens, created_at, updated_at, deleted_at

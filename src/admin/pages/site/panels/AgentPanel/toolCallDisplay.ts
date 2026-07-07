@@ -128,6 +128,10 @@ export function getToolCallDisplay(actionType: string, params: unknown): ToolCal
       return display('Reading document', contentDocumentDetail(p), 'document', 'read')
     case 'search_documents':
       return display('Searching documents', optionalString(p.query), 'document', 'read')
+    case 'grep_search':
+      return display('Grepping/Searching', optionalString(p.query ?? p.pattern ?? p.path), 'code', 'read')
+    case 'read_file':
+      return display('Reading file', optionalString(p.file_path ?? p.path ?? p.file), 'document', 'read')
     case 'list_users':
       return display('Listing users', '', 'users', 'read')
     case 'list_media':

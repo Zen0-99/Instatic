@@ -76,6 +76,36 @@
   50% { opacity: 0.4; }
 }
 
+/* ── Streaming placeholder — shown while waiting for the first chunk ─────── */
+.placeholderRow {
+  display: flex;
+  align-items: center;
+  gap: var(--space-s);
+  margin: var(--space-xs) 0;
+  padding: var(--space-xs) var(--space-s);
+  border-radius: 8px;
+  background: var(--overlay-5);
+  font-size: var(--text-xs);
+  color: var(--text-muted);
+}
+
+.placeholderDot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--text-muted);
+  animation: pulse 2s cubic-bezier(0.4, 0, 0.6, 1) infinite;
+}
+
+.placeholderText {
+  animation: shimmer 2s ease-in-out infinite;
+}
+
+@keyframes shimmer {
+  0%, 100% { opacity: 0.6; }
+  50% { opacity: 1; }
+}
+
 /* ── Message thread ──────────────────────────────────────────────────────── */
 .thread {
   flex: 1;
@@ -300,6 +330,65 @@
   flex-direction: column;
   gap: var(--space-px);
   width: 100%;
+}
+
+/* ── ThinkingBlock — collapsed shimmer header + dark text body ─────────────── */
+.thinkingBlock {
+  margin: var(--space-xs) 0;
+  border-radius: 8px;
+  background: var(--overlay-5);
+  overflow: hidden;
+}
+
+.thinkingBlockComplete {
+  background: var(--overlay-5);
+}
+
+.thinkingHeader {
+  display: flex;
+  align-items: center;
+  gap: var(--space-s);
+  width: 100%;
+  padding: var(--space-xs) var(--space-s);
+  border: none;
+  background: transparent;
+  cursor: pointer;
+  text-align: left;
+  font-size: var(--text-xs);
+  color: var(--text-muted);
+}
+
+.thinkingSummary {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.thinkingChevron {
+  flex: 0 0 auto;
+  transition: transform 0.15s ease;
+  font-size: 10px;
+}
+
+.thinkingChevronOpen {
+  transform: rotate(90deg);
+}
+
+.thinkingBody {
+  padding: 0 var(--space-s) var(--space-s);
+}
+
+.thinkingText {
+  margin: 0;
+  padding: var(--space-s);
+  border-radius: 6px;
+  background: var(--overlay-10);
+  color: var(--text-subtle);
+  font-size: var(--text-xs);
+  line-height: 1.5;
+  white-space: pre-wrap;
+  word-break: break-word;
+  max-height: 200px;
+  overflow-y: auto;
 }
 
 /* ── ToolCallRow — [category icon] [title · detail] [status] ─────────────── */

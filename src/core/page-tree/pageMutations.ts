@@ -49,15 +49,16 @@ export function renamePage(site: SiteDocument, pageId: string, title: string, sl
   const page = site.pages.find((p) => p.id === pageId)
   if (!page) throw new Error(`[PageTree] Page "${pageId}" not found`)
   page.title = title
-  if (slug !== undefined) {
-    const normalized = normalizePageSlug(slug)
-    // 'index' is the homepage intent — set it verbatim (homepage swap is a
-    // separate concern). Any other slug is made unique against sibling pages
-    // (excluding this one) so a rename can't introduce a duplicate slug.
-    page.slug = normalized === 'index'
-      ? 'index'
-      : uniquePageSlug(slug, site.pages, pageId)
-  }
+  // When no explicit slug is provided, derive it from the new title so the
+  // URL stays in sync with the page name.
+  const slugValue = slug !== undefined ? slug : title
+  const normalized = normalizePageSlug(slugValue)
+  // 'index' is the homepage intent — set it verbatim (homepage swap is a
+  // separate concern). Any other slug is made unique against sibling pages
+  // (excluding this one) so a rename can't introduce a duplicate slug.
+  page.slug = normalized === 'index'
+    ? 'index'
+    : uniquePageSlug(slugValue, site.pages, pageId)
 }
 
 export function reorderPages(site: SiteDocument, fromIndex: number, toIndex: number): void {

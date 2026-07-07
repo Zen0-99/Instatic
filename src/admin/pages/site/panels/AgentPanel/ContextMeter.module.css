@@ -50,3 +50,13 @@
     flex-shrink: 0;
     font-variant-numeric: tabular-nums;
 }
+
+.output {
+    color: var(--text-subtle);
+    opacity: 0.7;
+}
+
+.cost {
+    color: var(--warning);
+    opacity: 0.8;
+}

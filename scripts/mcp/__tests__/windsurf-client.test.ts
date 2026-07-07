@@ -25,12 +25,12 @@ class TestableWindsurfClient extends WindsurfClient {
     return true
   }
 
-  override async startCascade(): Promise<string> {
+  override async startCascade(conversationId: string): Promise<string> {
     // Add a small async hop so the await definitely yields, letting a
     // concurrent (un-queued) caller sneak in and also call startCascade.
     await new Promise((r) => setTimeout(r, 10))
     this.startCascadeCount++
-    ;(this as any).cascadeId = 'test-cascade-id'
+    ;(this as any).conversationCascadeIds.set(conversationId, 'test-cascade-id')
     return 'test-cascade-id'
   }
 
@@ -38,8 +38,17 @@ class TestableWindsurfClient extends WindsurfClient {
     // no-op
   }
 
-  override async pollTranscript(): Promise<{ entries: CascadeResponse[]; done: boolean; nextOffset: number }> {
-    return { entries: [], done: true, nextOffset: 0 }
+  override async pollTranscript(): Promise<{
+    steps: { index: number; type: number; status: number; thinking: string | null; response: string | null; toolCalls: Array<{ toolName: string; input: unknown }>; searchCalls: Array<{ toolName: string; input: unknown }> }[]
+    done: boolean
+    nextOffset: number
+    hasToolSteps: boolean
+    stepTypes: number[]
+    statuses: number[]
+    lastStepType: number
+    lastStatus: number
+  }> {
+    return { steps: [], done: true, nextOffset: 0, hasToolSteps: false, stepTypes: [], statuses: [], lastStepType: -1, lastStatus: -1 }
   }
 }
 
@@ -52,8 +61,8 @@ describe('WindsurfClient.sendQueue', () => {
 
     // Start two calls concurrently with attachToActive=true (default).
     // Without the queue both would race into startCascade simultaneously.
-    const p1 = client.sendAndAwait('first message', { pollIntervalMs: 0 })
-    const p2 = client.sendAndAwait('second message', { pollIntervalMs: 0 })
+    const p1 = client.sendAndAwait('conv-1', 'first message', { pollIntervalMs: 0 })
+    const p2 = client.sendAndAwait('conv-1', 'second message', { pollIntervalMs: 0 })
 
     const [r1, r2] = await Promise.all([p1, p2])
     expect(r1.completed).toBe(true)

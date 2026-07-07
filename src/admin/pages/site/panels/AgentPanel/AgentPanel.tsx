@@ -21,7 +21,7 @@
  * @see Guideline #410 — 3 Self-Contained Independent Panels
  */
 
-import { useRef, useEffect, memo } from 'react'
+import { useRef, useEffect, useState, memo } from 'react'
 import { useAgentStore } from '@admin/ai/useAgentStore'
 import { useAsyncResource } from '@admin/lib/useAsyncResource'
 import { useAdminNavigate } from '@admin/lib/useAdminNavigate'
@@ -44,6 +44,7 @@ import { cn } from '@ui/cn'
 import { ModelPicker } from './ModelPicker'
 import { ConversationHistory } from './ConversationHistory'
 import { ContextMeter } from './ContextMeter'
+import { useRelayStatus } from '@site/agent/useRelayStatus'
 import { ToolCallRow } from './ToolCallRow'
 import { formatRelativeTime } from './relativeTime'
 import styles from './AgentPanel.module.css'
@@ -76,6 +77,7 @@ export function AgentPanel({ variant = 'floating' }: { variant?: PanelVariant })
   const loadScopeDefault = useAgentStore((s) => s.loadScopeDefault)
   const activeCredentialId = useAgentStore((s) => s.agentActiveCredentialId)
   const activeModelId = useAgentStore((s) => s.agentActiveModelId)
+  const activeProviderId = useAgentStore((s) => s.agentActiveProviderId)
   const credentialsResource = useAsyncResource(
     (signal) => listCredentials(signal),
     [],
@@ -83,13 +85,15 @@ export function AgentPanel({ variant = 'floating' }: { variant?: PanelVariant })
   )
   const credentials = credentialsResource.data ?? []
   const credentialsLoaded = credentialsResource.data !== null || !credentialsResource.loading
-  const noCredentials = credentialsLoaded && credentials.length === 0
+  // The synthetic Cascade credential is always available, so "no credentials"
+  // only means there are no native providers configured.
+  const noCredentials = credentialsLoaded && credentials.length === 0 && activeProviderId !== 'cascade'
   const noProviderError = agentError?.startsWith('No AI provider configured') ?? false
   // The composer can't run a turn without an active (credential, model) — one
   // is either preloaded from the scope default or picked in the model picker.
   // Locking off `hasActiveProvider` (not a sticky error string) is what keeps
   // the composer usable the instant the user picks a model.
-  const hasActiveProvider = Boolean(activeCredentialId && activeModelId)
+  const hasActiveProvider = Boolean(activeModelId && (activeCredentialId || activeProviderId === 'cascade'))
   const composerLocked = !hasActiveProvider
   // Why the composer is locked, used for the empty-state + placeholder copy:
   //   'setup'       → no credentials exist at all → add one in AI settings.
@@ -109,18 +113,26 @@ export function AgentPanel({ variant = 'floating' }: { variant?: PanelVariant })
   // models endpoint) so the composer meter can show "0 / window" before the
   // first turn. Re-runs whenever the selected credential/model changes; null
   // until a model is picked, or when the provider has no published window
-  // (Ollama / uncatalogued) — the meter then stays hidden.
-  const activeProviderId =
-    credentials.find((c) => c.id === activeCredentialId)?.providerId ?? null
+  // (Ollama / uncatalogued) — the meter then stays hidden. Cascade also
+  // resolves its window through the /admin/api/ai/providers/cascade/models
+  // fallback, so the meter is shown for Windsurf models too.
+  const contextWindowProviderId = activeProviderId === 'cascade'
+    ? 'cascade'
+    : credentials.find((c) => c.id === activeCredentialId)?.providerId ?? null
+  const contextWindowCredentialId = activeProviderId === 'cascade'
+    ? 'cascade'
+    : activeCredentialId
   const contextWindowResource = useAsyncResource(
     async () => {
-      if (!activeProviderId || !activeCredentialId || !activeModelId) return null
-      const models = await listModels(activeProviderId, activeCredentialId)
+      if (!contextWindowProviderId || !contextWindowCredentialId || !activeModelId) return null
+      const models = await listModels(contextWindowProviderId, contextWindowCredentialId)
       return models.find((m) => m.id === activeModelId)?.contextWindow ?? null
     },
-    [activeProviderId, activeCredentialId, activeModelId],
+    [contextWindowProviderId, contextWindowCredentialId, activeModelId],
     { swallowErrors: true },
   )
+
+  const relayStatus = useRelayStatus(activeProviderId === 'cascade')
 
   const inputRef = useRef<HTMLTextAreaElement>(null)
   const threadRef = useRef<HTMLDivElement>(null)
@@ -270,6 +282,12 @@ export function AgentPanel({ variant = 'floating' }: { variant?: PanelVariant })
           </>
         )}
 
+        {/* Activity placeholder — appears as soon as the user sends a message
+            while the relay is still reaching Windsurf. */}
+        {isStreaming && messages.at(-1)?.role === 'assistant' && messages.at(-1) && messages.at(-1).blocks.length === 0 && (
+          <StreamingPlaceholder />
+        )}
+
         {/* Generic error banner — only show when it's NOT the dedicated
             no-credential message (which renders via the setup empty state). */}
         {agentError && !noProviderError && (
@@ -315,6 +333,7 @@ export function AgentPanel({ variant = 'floating' }: { variant?: PanelVariant })
               credentials={credentials}
               credentialsLoaded={credentialsLoaded}
               onRefreshCredentials={credentialsResource.refresh}
+              cascadeConnected={relayStatus.connected}
             />
             {isStreaming ? (
               <Button
@@ -393,6 +412,8 @@ function MessageBubble({ group }: { group: ConversationGroup }) {
       {groupRenderItems(group.messages).map((item) =>
         item.kind === 'text' ? (
           <MarkdownTextBubble key={item.key} text={item.text} isUser={isUser} />
+        ) : item.kind === 'thinking' ? (
+          <ThinkingBlock key={item.key} text={item.text} startedAt={item.startedAt} done={item.done} />
         ) : (
           // A run of consecutive tool calls shares one container so the rows
           // stack tightly; text blocks around them stay separate bubbles.
@@ -431,6 +452,7 @@ type MessageBlock = AgentMessage['blocks'][number]
 
 type MessageRenderItem =
   | { kind: 'text'; key: string; text: string }
+  | { kind: 'thinking'; key: string; text: string; startedAt: number; done: boolean }
   | { kind: 'tools'; key: string; toolCalls: AgentToolCall[] }
 
 function groupRenderItems(messages: AgentMessage[]): MessageRenderItem[] {
@@ -440,6 +462,16 @@ function groupRenderItems(messages: AgentMessage[]): MessageRenderItem[] {
       if (block.kind === 'text') {
         // Position-based key, stable as streaming deltas append in place.
         items.push({ kind: 'text', key: `text-${message.id}-${index}`, text: block.text })
+        return
+      }
+      if (block.kind === 'thinking') {
+        items.push({
+          kind: 'thinking',
+          key: `thinking-${message.id}-${index}`,
+          text: block.text,
+          startedAt: block.startedAt,
+          done: block.done ?? false,
+        })
         return
       }
       const last = items.at(-1)
@@ -486,6 +518,55 @@ const MarkdownTextBubble = memo(function MarkdownTextBubble({
     />
   )
 })
+
+// ---------------------------------------------------------------------------
+// ThinkingBlock — collapsed-by-default shimmer with "Thought for Xs" timer.
+// ---------------------------------------------------------------------------
+
+interface ThinkingBlockProps {
+  text: string
+  startedAt: number
+  done: boolean
+}
+
+function ThinkingBlock({ text, startedAt, done }: ThinkingBlockProps) {
+  const [isOpen, setIsOpen] = useState(false)
+  const [elapsed, setElapsed] = useState(0)
+
+  useEffect(() => {
+    if (done) {
+      setElapsed(Math.max(1, Math.round((Date.now() - startedAt) / 1000)))
+      return
+    }
+    const id = setInterval(() => {
+      setElapsed(Math.max(1, Math.round((Date.now() - startedAt) / 1000)))
+    }, 1000)
+    return () => clearInterval(id)
+  }, [startedAt, done])
+
+  const summary = done ? `Thought for ${elapsed}s` : `Thinking for ${elapsed}s…`
+
+  return (
+    <div className={cn(styles.thinkingBlock, done && styles.thinkingBlockComplete)}>
+      <button
+        type="button"
+        className={styles.thinkingHeader}
+        onClick={() => setIsOpen((prev) => !prev)}
+        aria-expanded={isOpen}
+      >
+        <span className={cn(styles.thinkingChevron, isOpen && styles.thinkingChevronOpen)} aria-hidden="true">
+          &gt;
+        </span>
+        <span className={styles.thinkingSummary}>{summary}</span>
+      </button>
+      {isOpen && (
+        <div className={styles.thinkingBody}>
+          <pre className={styles.thinkingText}>{text}</pre>
+        </div>
+      )}
+    </div>
+  )
+}
 
 // ---------------------------------------------------------------------------
 // Empty state
@@ -600,5 +681,28 @@ function AgentSettingsButton({
       <span>{label}</span>
       <ArrowRightIcon size={12} aria-hidden="true" />
     </Button>
+  )
+}
+
+// ---------------------------------------------------------------------------
+// StreamingPlaceholder — transient activity indicator shown while the relay
+// is reaching Windsurf and the assistant has not produced any blocks yet.
+// ---------------------------------------------------------------------------
+
+const PLACEHOLDER_WORDS = ['Processing', 'Analysing', 'Understanding', 'Thinking', 'Grepping', 'Inspecting']
+
+function StreamingPlaceholder() {
+  const [index, setIndex] = useState(0)
+  useEffect(() => {
+    const id = setInterval(() => {
+      setIndex((i) => (i + 1) % PLACEHOLDER_WORDS.length)
+    }, 1500)
+    return () => clearInterval(id)
+  }, [])
+  return (
+    <div className={styles.placeholderRow} aria-busy="true" aria-label={PLACEHOLDER_WORDS[index]}>
+      <span className={styles.placeholderDot} aria-hidden="true" />
+      <span className={styles.placeholderText}>{PLACEHOLDER_WORDS[index]}</span>
+    </div>
   )
 }

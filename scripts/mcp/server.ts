@@ -14,7 +14,7 @@
 
 import { allTools, toolByName } from './tool-registry'
 import { genTraceId, withBudget, TimeoutError, logHop, setTraceLogger } from './trace'
-import { appendFileSync, readFileSync, writeFileSync, existsSync, unlinkSync } from 'node:fs'
+import { appendFileSync, readFileSync, writeFileSync, existsSync, unlinkSync, openSync, closeSync } from 'node:fs'
 import { resolve } from 'node:path'
 import { spawn } from 'node:child_process'
 import { fileURLToPath } from 'node:url'
@@ -246,12 +246,15 @@ async function ensureRelayDaemon(): Promise<void> {
   log('[MCP Server] Starting relay daemon...')
   try {
     const daemonPath = fileURLToPath(new URL('relay-daemon.ts', import.meta.url))
+    const relayLogPath = resolve(process.cwd(), 'relay-daemon.log')
+    const relayLogFd = openSync(relayLogPath, 'a')
     const child = spawn(process.execPath, [daemonPath], {
       detached: true,
-      stdio: 'ignore',
+      stdio: ['ignore', relayLogFd, relayLogFd],
       env: process.env,
       windowsHide: true,
     })
+    try { closeSync(relayLogFd) } catch { /* child inherited the fd */ }
     if (child.pid) {
       writeFileSync(PID_FILE, String(child.pid))
     }
@@ -280,10 +283,12 @@ async function callRelayTool(
 ): Promise<unknown> {
   const payload = { name, arguments: args, traceId }
   log(`[MCP Server] POST to relay: ${name} (trace ${traceId}) body=${JSON.stringify(payload).length} bytes`)
+  // Render snapshots need a longer budget than normal node-editing tools.
+  const toolTimeoutMs = name === 'site_render_snapshot' ? 130_000 : RELAY_TOOL_TIMEOUT_MS
   const bodyPromise = httpPostJson(
     RELAY_TOOL_URL,
     payload,
-    RELAY_TOOL_TIMEOUT_MS + 5000,
+    toolTimeoutMs + 5000,
   ).then((res) => {
     log(`[MCP Server] Relay response for ${name} (trace ${traceId}): status=${res.status} body=${res.body.length} bytes`)
     if (!res.ok) {
@@ -298,12 +303,12 @@ async function callRelayTool(
     traceId,
     name,
     'server:callRelayTool',
-    RELAY_TOOL_TIMEOUT_MS,
+    toolTimeoutMs,
     bodyPromise,
     (elapsed) => {
       log(`[MCP Server] Tool ${name} (trace ${traceId}) stalled at ${elapsed}ms — relay unresponsive`)
     },
-    Math.min(RELAY_TOOL_TIMEOUT_MS, 20000),
+    Math.min(toolTimeoutMs, 20000),
   )
 }
 
@@ -390,7 +395,7 @@ async function handleMcpRequest(req: McpRequest): Promise<void> {
         const message = err instanceof Error ? err.message : String(err)
         const isTimeout = err instanceof TimeoutError
         const display = isTimeout
-          ? `Tool '${p.name}' timed out after ${RELAY_TOOL_TIMEOUT_MS}ms. The relay or inner tool (CMS/browser) may be stalled. Check relay-daemon.log for trace ${(err as TimeoutError).traceId}.`
+          ? `Tool '${p.name}' timed out after ${p.name === 'site_render_snapshot' ? 130_000 : RELAY_TOOL_TIMEOUT_MS}ms. The relay or inner tool (CMS/browser) may be stalled. Check relay-daemon.log for trace ${(err as TimeoutError).traceId}.`
           : `Tool error: ${message}`
         log(`[MCP Server] Tool ${p.name} (trace ${traceId}) error: ${message}`)
         sendResponse({

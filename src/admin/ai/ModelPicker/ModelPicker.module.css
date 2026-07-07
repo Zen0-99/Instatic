@@ -90,6 +90,26 @@
     letter-spacing: 0;
 }
 
+.statusDot {
+    display: inline-block;
+    width: 7px;
+    height: 7px;
+    border-radius: 50%;
+    margin-right: var(--space-3xs);
+    vertical-align: middle;
+    background: var(--text-subtle);
+    flex-shrink: 0;
+}
+
+.statusDot[data-connected='true'] {
+    background: #22c55e;
+}
+
+.statusDot[data-connected='false'] {
+    background: var(--text-subtle);
+    opacity: 0.5;
+}
+
 /* Label takes the available width; the meta cluster keeps its natural size.
    Ellipsis is only a last-resort safety — the wider menu fits full names. */
 .modelLabel {

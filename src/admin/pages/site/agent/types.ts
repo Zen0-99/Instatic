@@ -169,7 +169,7 @@ export interface AgentToolCall {
  */
 type AgentMessageBlock =
   | { kind: 'text'; text: string }
-  | { kind: 'thinking'; text: string }
+  | { kind: 'thinking'; text: string; startedAt: number; done?: boolean }
   | { kind: 'toolCall'; toolCall: AgentToolCall }
 
 export interface AgentMessage {

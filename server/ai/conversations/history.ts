@@ -72,7 +72,8 @@ export function buildMessageHistory(records: MessageRecord[]): AiMessage[] {
       // boundary (`parseContentBlocks`), so no cast is needed here.
       out.push({ role: 'user', content: rec.content })
     } else if (rec.role === 'assistant') {
-      const content = rec.content
+      // Thinking blocks are UI-only and must never be forwarded to a model driver.
+      const content = rec.content.filter((b) => b.kind !== 'thinking')
       out.push({ role: 'assistant', content })
       for (const block of content) {
         if (block.kind === 'toolCall') unanswered.set(block.toolCallId, block.toolName)

@@ -36,8 +36,11 @@ export interface AgentSlice {
   agentConversationId: string | null
   agentActiveCredentialId: string | null
   agentActiveModelId: string | null
+  agentActiveProviderId: string | null
   agentConversations: ConversationView[]
   agentContextTokens: number | null
+  agentOutputTokens: number | null
+  agentCreditCost: number | null
   agentCascadeRelay: boolean
   agentCascadeModelId: string | null
 
@@ -51,7 +54,7 @@ export interface AgentSlice {
   loadAgentConversation(id: string): Promise<void>
   startNewAgentConversation(): void
   deleteAgentConversation(id: string): Promise<void>
-  setAgentProvider(credentialId: string, modelId: string): Promise<void>
+  setAgentProvider(credentialId: string, modelId: string, providerId?: string): Promise<void>
   loadScopeDefault(): Promise<void>
   toggleCascadeRelay(): void
   setCascadeModel(modelId: string): void

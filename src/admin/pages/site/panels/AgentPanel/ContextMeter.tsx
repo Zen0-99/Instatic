@@ -34,6 +34,8 @@ interface ContextMeterProps {
 
 export function ContextMeter({ windowTokens }: ContextMeterProps) {
   const storedUsed = useAgentStore((s) => s.agentContextTokens)
+  const outputTokens = useAgentStore((s) => s.agentOutputTokens)
+  const creditCost = useAgentStore((s) => s.agentCreditCost)
 
   // No window (Ollama / uncatalogued / model not yet resolved) → hide.
   if (windowTokens === null || windowTokens <= 0) return null
@@ -65,6 +67,12 @@ export function ContextMeter({ windowTokens }: ContextMeterProps) {
       </span>
       <span className={styles.count}>
         {formatTokens(used)} / {formatTokens(windowTokens)}
+        {outputTokens != null && outputTokens > 0 && (
+          <span className={styles.output}> · {formatTokens(outputTokens)} out</span>
+        )}
+        {creditCost != null && creditCost > 0 && (
+          <span className={styles.cost}> · {creditCost} cr</span>
+        )}
       </span>
     </div>
   )

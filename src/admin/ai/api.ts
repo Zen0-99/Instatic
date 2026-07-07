@@ -20,6 +20,7 @@ import {
   type McpConnectorView,
   type CreateMcpConnectorBody,
   type CreateMcpConnectorResult,
+  type AiContentBlock,
 } from '@core/ai'
 
 // ---------------------------------------------------------------------------
@@ -35,6 +36,7 @@ const ProviderId = Type.Union([
   Type.Literal('ollama'),
   Type.Literal('openrouter'),
   Type.Literal('openai-compatible'),
+  Type.Literal('cascade'),
 ])
 
 const AuthMode = Type.Union([
@@ -117,6 +119,8 @@ const ConversationViewSchema = Type.Object({
   title: Type.String(),
   credentialId: Type.Union([Type.String(), Type.Null()]),
   modelId: Type.String(),
+  providerId: Type.Union([Type.String(), Type.Null()]),
+  cascadeId: Type.Union([Type.String(), Type.Null()]),
   promptTokensTotal: Type.Number(),
   completionTokensTotal: Type.Number(),
   costUsdTotal: Type.Number(),
@@ -178,13 +182,13 @@ export async function listCredentials(signal?: AbortSignal): Promise<CredentialV
 
 export type CreateCredentialBody =
   | {
-      providerId: 'anthropic' | 'openai' | 'ollama' | 'openrouter' | 'openai-compatible'
+      providerId: 'anthropic' | 'openai' | 'ollama' | 'openrouter' | 'openai-compatible' | 'cascade'
       authMode: 'apiKey'
       displayLabel: string
       apiKey: string
     }
   | {
-      providerId: 'anthropic' | 'openai' | 'ollama' | 'openrouter' | 'openai-compatible'
+      providerId: 'anthropic' | 'openai' | 'ollama' | 'openrouter' | 'openai-compatible' | 'cascade'
       authMode: 'baseUrl'
       displayLabel: string
       baseUrl: string
@@ -232,12 +236,23 @@ export async function testCredential(id: string): Promise<TestResult> {
 // ---------------------------------------------------------------------------
 
 export async function listModels(
-  providerId: 'anthropic' | 'openai' | 'ollama' | 'openrouter' | 'openai-compatible',
+  providerId: 'anthropic' | 'openai' | 'ollama' | 'openrouter' | 'openai-compatible' | 'cascade',
   credentialId?: string,
+  signal?: AbortSignal,
 ): Promise<AiModel[]> {
   const body = await apiRequest(`/admin/api/ai/providers/${providerId}/models`, {
     query: { credentialId },
     schema: ModelListResponseSchema,
+    signal,
+  })
+  return body.models
+}
+
+/** Fetch available Cascade models from the local Windsurf relay. */
+export async function listCascadeModels(signal?: AbortSignal): Promise<AiModel[]> {
+  const body = await apiRequest('/admin/api/ai/providers/cascade/models', {
+    schema: ModelListResponseSchema,
+    signal,
   })
   return body.models
 }
@@ -287,15 +302,28 @@ export async function deleteConversation(id: string): Promise<void> {
 
 export async function updateConversationProvider(
   id: string,
-  credentialId: string,
+  credentialId: string | null,
   modelId: string,
+  providerId?: string | null,
+  cascadeId?: string | null,
 ): Promise<ConversationView> {
   const body = await apiRequest(`/admin/api/ai/conversations/${encodeURIComponent(id)}`, {
     method: 'PUT',
-    body: { credentialId, modelId },
+    body: { credentialId, modelId, providerId, cascadeId },
     schema: ConversationItemResponseSchema,
   })
   return body.conversation
+}
+
+export async function appendConversationMessage(
+  id: string,
+  body: { role: 'user' | 'assistant' | 'tool'; content: AiContentBlock[]; toolCallId?: string; toolName?: string },
+): Promise<ConversationView> {
+  await apiRequest(`/admin/api/ai/conversations/${encodeURIComponent(id)}/messages`, {
+    method: 'POST',
+    body,
+  })
+  return getConversation(id)
 }
 
 // ---------------------------------------------------------------------------
