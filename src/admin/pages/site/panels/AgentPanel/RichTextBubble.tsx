@@ -6,6 +6,7 @@
  */
 import { memo, useCallback } from 'react'
 import { useEditorStore } from '@site/store/store'
+import type { BaseNode, SiteDocument } from '@core/page-tree'
 import { renderMarkdownToHtml } from '@site/agent'
 import { cn } from '@ui/cn'
 import { pillAccent, pillAccentVar } from '@ui/pillAccent'
@@ -25,7 +26,17 @@ interface RichTextBubbleProps {
  * (Layer, Module, Element, Node, Section, Component) with optional plural
  * 's' and optional angle-brackets or backticks around each id.
  */
-const MENTION_RE = /\b(?:Layer|Module|Element|Node|Section|Component)s?\s+((?:<|`|`)?[A-Za-z0-9_-]+(?:>|`|\`)?(?:,\s*(?:<|`|\`)?[A-Za-z0-9_-]+(?:>|`|\`)?)*)/gi
+const MENTION_RE = /\b(?:Layer|Module|Element|Node|Section|Component)s?\s+((?:<|`)?[A-Za-z0-9_-]+(?:>|`)?(?:,\s*(?:<|`)?[A-Za-z0-9_-]+(?:>|`)?)*)/i
+
+function scanMentions(text: string): RegExpExecArray[] {
+  const matches: RegExpExecArray[] = []
+  const re = new RegExp(MENTION_RE.source, 'gi')
+  let match: RegExpExecArray | null
+  while ((match = re.exec(text)) !== null) {
+    matches.push(match)
+  }
+  return matches
+}
 
 function useNodeSelector() {
   const selectNode = useCallback(
@@ -43,9 +54,12 @@ function useNodeSelector() {
 
 function MentionPill({ label, nodeId }: { label: string; nodeId: string }) {
   const selectNode = useNodeSelector()
+  const state = useEditorStore.getState()
+  const site = state.site
+  const page = site?.pages.find((p) => p.id === state.activePageId)
   let colorKey = nodeId
   try {
-    colorKey = getMentionLabelForNode(nodeId).colorKey
+    colorKey = getMentionLabelForNode(nodeId, page?.nodes[nodeId], site).colorKey
   } catch {
     // Node deleted — fall back to nodeId for color generation
   }
@@ -119,11 +133,13 @@ function renderWithScannedMentions(text: string): React.ReactNode[] {
   // Get current page node ids for validation + mention label registry
   let validNodeIds: Set<string> | null = null
   let mentionLabels: Record<string, string> = {}
+  let page: { nodes: Record<string, BaseNode> } | undefined
+  let site: SiteDocument | null = null
   try {
     const state = useEditorStore.getState()
-    const site = state.site
+    site = state.site
     const activePageId = state.activePageId
-    const page = site?.pages.find((p) => p.id === activePageId)
+    page = site?.pages.find((p) => p.id === activePageId)
     if (page?.nodes) {
       validNodeIds = new Set(Object.keys(page.nodes))
     }
@@ -132,14 +148,12 @@ function renderWithScannedMentions(text: string): React.ReactNode[] {
     // No editor store available (content workspace)
   }
 
-  let match: RegExpExecArray | null
-  MENTION_RE.lastIndex = 0
-  while ((match = MENTION_RE.exec(text)) !== null) {
+  for (const match of scanMentions(text)) {
     const [fullMatch, idsStr] = match
     const start = match.index
     const ids = idsStr
       .split(',')
-      .map((s) => s.trim().replace(/^[<`\`]+|[>`\`]+$/g, ''))
+      .map((s) => s.trim().replace(/^[<`]+|[>`]+$/g, ''))
 
     // Preserve the original prefix word (Layer, Module, Node, etc.)
     const prefixMatch = fullMatch.match(/^\S+/)
@@ -168,7 +182,7 @@ function renderWithScannedMentions(text: string): React.ReactNode[] {
         )
       } else if (isValid) {
         // Still exists in page — resolve fresh
-        const { label } = getMentionLabelForNode(id)
+        const { label } = getMentionLabelForNode(id, page?.nodes[id], site)
         pills.push(
           <MentionPill
             key={`m-${id}-${segments.length}-${i}`}
@@ -227,9 +241,7 @@ const RichTextBubble = memo(function RichTextBubble({
   }
 
   // Assistant text — scan for mention patterns
-  if (!isUser && MENTION_RE.test(text)) {
-    // Reset regex state after test
-    MENTION_RE.lastIndex = 0
+  if (!isUser && scanMentions(text).length > 0) {
     return (
       <div
         className={cn(
@@ -241,7 +253,6 @@ const RichTextBubble = memo(function RichTextBubble({
       </div>
     )
   }
-  MENTION_RE.lastIndex = 0
 
   // No mentions — render markdown for assistants, plain text for users
   const html = !isUser ? renderMarkdownToHtml(text) : null

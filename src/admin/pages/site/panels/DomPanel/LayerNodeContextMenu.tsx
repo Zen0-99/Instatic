@@ -322,11 +322,14 @@ export function LayerNodeContextMenu({
 
   const dispatchAddToAiChat = () => {
     if (targetIds.length === 0) return
+    const state = useEditorStore.getState()
+    const site = state.site
+    const page = site?.pages.find((p) => p.id === state.activePageId)
     const mentions = targetIds.map((id) => {
-      const { label } = getMentionLabelForNode(id)
+      const { label } = getMentionLabelForNode(id, page?.nodes[id], site)
       return { nodeId: id, label }
     })
-    useEditorStore.getState().stageAgentMentions(mentions)
+    state.stageAgentMentions(mentions)
     onClose()
   }
 

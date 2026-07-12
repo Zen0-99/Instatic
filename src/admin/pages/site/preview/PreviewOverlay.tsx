@@ -31,7 +31,7 @@ export function PreviewOverlay() {
   const closePreview = useEditorStore((s) => s.closePreview)
   const site = useEditorStore((s) => s.site)
   const activePage = useEditorStore(selectActivePage)
-  const templatePreviewContext = useTemplatePreviewContext(activePage)
+  const { context: templatePreviewContext } = useTemplatePreviewContext(activePage)
 
   const closeBtnRef = useRef<HTMLButtonElement>(null)
   const triggerRef = useRef<HTMLElement | null>(null)

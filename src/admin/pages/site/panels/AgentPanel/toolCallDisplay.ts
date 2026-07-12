@@ -1,5 +1,3 @@
-import { getMentionLabelForNode } from '@site/agent/mentionLabel'
-
 export type ToolCallIcon =
   | 'add'
   | 'class'
@@ -85,7 +83,7 @@ export function getToolCallDisplay(
       return display('Duplicating node', duplicateNodeDetail(p.nodeId, p.count, displayLabel), 'copy', 'write')
 
     case 'apply_css':
-      return display('Updating CSS', summarizeCss(optionalString(p.css)), 'style', 'style')
+      return cssOperationDisplay(p)
     case 'assign_class':
       return display('Assigning class', classDetail(p.classId, p.nodeId, displayLabel), 'class', 'style')
     case 'remove_class':
@@ -218,12 +216,7 @@ function nodeDetail(nodeId: unknown, cachedLabel?: string): string {
   if (cachedLabel) return cachedLabel
   const id = optionalString(nodeId)
   if (!id) return ''
-  try {
-    const { label } = getMentionLabelForNode(id)
-    return label
-  } catch {
-    return shortId(nodeId)
-  }
+  return shortId(nodeId)
 }
 
 function pageDetail(pageId: unknown): string {
@@ -367,6 +360,31 @@ function summarizeCss(css: string): string {
   if (selectors.length === 0) return 'CSS changes'
   const head = selectors.slice(0, 2).join(', ')
   return selectors.length > 2 ? `${head} +${selectors.length - 2}` : head
+}
+
+function cssOperationDisplay(params: Record<string, unknown>): ToolCallDisplay {
+  const operation = optionalString(params.operation)
+  if (operation === 'replace') {
+    return display('Replacing CSS', summarizeCss(optionalString(params.css)), 'style', 'style')
+  }
+  if (operation === 'delete') {
+    return display('Deleting CSS rules', summarizeStringList(params.selectors), 'delete', 'danger')
+  }
+  if (operation === 'remove-properties') {
+    const selectors = summarizeStringList(params.selectors)
+    const properties = summarizeStringList(params.properties)
+    const detail = [selectors, properties].filter(Boolean).join(' · ')
+    return display('Removing CSS properties', detail, 'style', 'danger')
+  }
+  return display('Updating CSS', summarizeCss(optionalString(params.css)), 'style', 'style')
+}
+
+function summarizeStringList(value: unknown): string {
+  if (!Array.isArray(value)) return ''
+  const items = value.filter((item): item is string => typeof item === 'string' && item.length > 0)
+  if (items.length === 0) return ''
+  const head = items.slice(0, 2).join(', ')
+  return items.length > 2 ? `${head} +${items.length - 2}` : head
 }
 
 function humanizeToolName(toolName: string): string {

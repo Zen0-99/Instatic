@@ -6,25 +6,23 @@
  * accent so it matches the DOM tree's `<tag>` badge colour.
  */
 import { registry } from '@core/module-engine'
+import type { BaseNode, SiteDocument } from '@core/page-tree'
 import {
   getNodeDisplayName,
   getNodeHtmlTag,
   getNodeClassNames,
 } from '@core/page-tree'
-import { useEditorStore } from '@site/store/store'
 
 export interface MentionLabelResult {
   label: string
   colorKey: string
 }
 
-export function getMentionLabelForNode(nodeId: string): MentionLabelResult {
-  const state = useEditorStore.getState()
-  const site = state.site
-  const activePageId = state.activePageId
-  const page = site?.pages.find((p) => p.id === activePageId)
-  const node = page?.nodes[nodeId]
-
+export function getMentionLabelForNode(
+  nodeId: string,
+  node: BaseNode | undefined,
+  site: SiteDocument | null,
+): MentionLabelResult {
   if (!node) {
     return { label: nodeId, colorKey: nodeId }
   }
