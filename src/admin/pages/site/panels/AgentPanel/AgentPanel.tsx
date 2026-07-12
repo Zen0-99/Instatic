@@ -21,7 +21,7 @@
  * @see Guideline #410 — 3 Self-Contained Independent Panels
  */
 
-import { useRef, useEffect, useState, memo } from 'react'
+import { useRef, useEffect, useState } from 'react'
 import { useAgentStore, useAgentStoreApi } from '@admin/ai/useAgentStore'
 import { useAsyncResource } from '@admin/lib/useAsyncResource'
 import { useAdminNavigate } from '@admin/lib/useAdminNavigate'
