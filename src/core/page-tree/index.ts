@@ -137,6 +137,11 @@ export {
 } from './mutations'
 
 export {
+  createDomNode,
+  syncModuleOverlayHtmlFields,
+} from './domMutations'
+
+export {
   addPage,
   deletePage,
   renamePage,
@@ -180,6 +185,7 @@ export {
 } from './classUtils'
 
 export { getNodeDisplayName, getNodeHtmlTag, getNodeClassNames } from './nodeDisplayName'
+export { isDomNode, VOID_HTML_ELEMENTS, domCanHaveChildren } from './baseNode'
 
 export { resolvePageTreeDropTarget } from './dnd'
 export type { PageTreeDropPosition, PageTreeDropTarget } from './dnd'
