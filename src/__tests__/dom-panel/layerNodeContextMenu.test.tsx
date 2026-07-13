@@ -927,7 +927,7 @@ describe('LayerNodeContextMenu — Add to AI chat', () => {
     fireEvent.click(screen.getByRole('menuitem', { name: /add to ai chat/i }))
 
     expect(useEditorStore.getState().agentDraftMentions).toEqual([
-      { nodeId: 'a', label: 'Layer a' },
+      { nodeId: 'a', label: '<p>' },
     ])
     expect(useEditorStore.getState().isAgentOpen).toBe(true)
   })
@@ -943,8 +943,8 @@ describe('LayerNodeContextMenu — Add to AI chat', () => {
     fireEvent.click(screen.getByRole('menuitem', { name: /add to ai chat/i }))
 
     expect(useEditorStore.getState().agentDraftMentions).toEqual([
-      { nodeId: 'a', label: 'Layer a' },
-      { nodeId: 'b', label: 'Layer b' },
+      { nodeId: 'a', label: '<p>' },
+      { nodeId: 'b', label: '<button>' },
     ])
     expect(useEditorStore.getState().isAgentOpen).toBe(true)
   })

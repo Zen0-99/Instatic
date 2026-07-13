@@ -115,7 +115,12 @@ const GRANDFATHERED: Record<string, number> = {
   // tool handling (site_update_dom_node, isDomNode guards, and htmlImport paths)
   // landed in the browser executor. Extract DOM-native tool runners into a
   // sibling module to graduate this entry.
-  'src/admin/pages/site/agent/executor.ts': 734,
+  // Ratcheted 734 → 701 after the DOM-native runners were extracted.
+  'src/admin/pages/site/agent/executor.ts': 701,
+  // Grew past CEILING while adding the layer-mention queue and label registry to
+  // the agent slice. Extract conversation-reset and credential helpers to
+  // graduate this entry.
+  'src/admin/pages/site/agent/agentSlice.ts': 742,
   // server/plugins/host/handlers/content.ts graduated (786 → 661) when the
   // DB→wire projection helpers moved to contentProjection.ts.
   'src/admin/pages/site/panels/TypographyPanel/FontsSection/AddGoogleFontDialog.tsx': 751,
